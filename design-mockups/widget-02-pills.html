@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Widget Direction B — Pill tabs</title>
+<style>
+  :root {
+    --bg: #FAFAFA;
+    --fg: #111;
+    --fg-muted: #8A8A8A;
+    --hairline: rgba(0,0,0,0.08);
+    --ring: rgba(0,0,0,0.16);
+    --shopping: #4CAF50;
+    --work: #2196F3;
+    --reading: #9C27B0;
+    --accent: var(--shopping);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #2d1f4a 100%);
+    color: var(--fg);
+    min-height: 100vh;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 32px; max-width: 1100px; margin: 0 auto;
+  }
+  .col h2 {
+    color: rgba(255,255,255,0.9);
+    font-size: 14px; font-weight: 500; letter-spacing: 0.04em;
+    text-transform: uppercase; margin: 0 0 12px;
+  }
+  .caption {
+    color: rgba(255,255,255,0.6);
+    font-size: 12px; margin: 12px 0 0;
+    font-family: monospace; line-height: 1.6;
+  }
+
+  /* ---- Widget chrome ---- */
+  .widget {
+    background: var(--bg);
+    border-radius: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    padding: 8px;
+    width: 100%; max-width: 440px;
+  }
+  .header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px;
+  }
+  .tabs {
+    flex: 1;
+    display: flex; gap: 6px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; white-space: nowrap;
+    border: 1.5px solid var(--ring); color: var(--fg);
+    background: transparent;
+    cursor: pointer;
+    min-height: 32px;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .pill.active {
+    background: var(--accent); border-color: var(--accent); color: white;
+  }
+  .pill.active .dot { background: white; }
+  .icon-btn {
+    width: 44px; height: 44px; display: grid; place-items: center;
+    color: white; cursor: pointer; border: 0;
+    background: var(--accent); border-radius: 50%;
+    font-size: 22px; flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(76,175,80,0.3);
+  }
+
+  .items { padding: 4px 0; }
+  .item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 6px; cursor: pointer;
+  }
+  .check {
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1.5px solid var(--ring);
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .item.done .check { background: var(--accent); border-color: var(--accent); }
+  .item.done .check::after {
+    content: ""; width: 10px; height: 5px;
+    border-left: 2px solid white; border-bottom: 2px solid white;
+    transform: rotate(-45deg) translate(1px, -1px);
+  }
+  .text { font-size: 14px; line-height: 1.3; flex: 1; }
+  .item.done .text { color: var(--fg-muted); text-decoration: line-through; }
+  .done-meta {
+    font-size: 11px; color: var(--fg-muted);
+    padding: 6px 6px 2px; letter-spacing: 0.06em;
+  }
+
+  /* ---- QuickAdd dialog ---- */
+  .dialog-frame {
+    background: rgba(20,20,30,0.5);
+    border-radius: 24px;
+    padding: 40px 20px;
+    display: flex; justify-content: center;
+    backdrop-filter: blur(2px);
+  }
+  .dialog {
+    background: white; border-radius: 28px;
+    padding: 24px; width: 100%; max-width: 360px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.3);
+  }
+  .dialog-title {
+    font-size: 22px; font-weight: 600; margin-bottom: 16px;
+  }
+  .dialog-label {
+    font-size: 12px; color: var(--fg-muted); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 8px;
+  }
+  .dialog-pills {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 18px;
+  }
+  .dialog-input {
+    width: 100%;
+    padding: 14px 16px; border: 1.5px solid var(--ring); border-radius: 12px;
+    font: inherit; font-size: 16px;
+    margin-bottom: 20px;
+  }
+  .dialog-input:focus { outline: none; border-color: var(--accent); }
+  .dialog-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .dialog-btn {
+    padding: 10px 20px; border: 0; border-radius: 999px;
+    font: inherit; font-weight: 600; font-size: 14px;
+    background: transparent; color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .dialog-btn.primary { background: var(--accent); color: white; }
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <div class="col">
+    <h2>1. Widget default — pill tabs</h2>
+    <div class="widget">
+      <div class="header">
+        <div class="tabs">
+          <div class="pill active"><span class="dot"></span>Shopping</div>
+          <div class="pill"><span class="dot" style="background: var(--work)"></span>Work</div>
+          <div class="pill"><span class="dot" style="background: var(--reading)"></span>Reading</div>
+        </div>
+        <button class="icon-btn">+</button>
+      </div>
+      <div class="items">
+        <div class="item"><div class="check"></div><div class="text">olive oil</div></div>
+        <div class="item"><div class="check"></div><div class="text">3 ripe tomatoes</div></div>
+        <div class="item"><div class="check"></div><div class="text">fresh basil leaves</div></div>
+        <div class="item"><div class="check"></div><div class="text">mozzarella</div></div>
+        <div class="done-meta">2 DONE</div>
+        <div class="item done"><div class="check"></div><div class="text">2 cups flour</div></div>
+        <div class="item done"><div class="check"></div><div class="text">1 tsp salt</div></div>
+      </div>
+    </div>
+    <p class="caption">Same pill pattern as the in-app design.<br>Scrollable horizontally; no extra activity to switch sections.<br>+ button picks up the active section's color.</p>
+  </div>
+
+  <div class="col">
+    <h2>2. QuickAdd dialog (after +)</h2>
+    <div class="dialog-frame">
+      <div class="dialog">
+        <div class="dialog-title">Add an item</div>
+        <div class="dialog-label">Section</div>
+        <div class="dialog-pills">
+          <div class="pill active"><span class="dot"></span>Shopping</div>
+          <div class="pill"><span class="dot" style="background: var(--work)"></span>Work</div>
+          <div class="pill"><span class="dot" style="background: var(--reading)"></span>Reading</div>
+        </div>
+        <div class="dialog-label">Item</div>
+        <input class="dialog-input" placeholder="parmesan, garlic, …" autofocus />
+        <div class="dialog-actions">
+          <button class="dialog-btn">Cancel</button>
+          <button class="dialog-btn primary">Add</button>
+        </div>
+      </div>
+    </div>
+    <p class="caption">Pre-selects the widget's active section.<br>Tap a pill to retarget before typing.</p>
+  </div>
+
+</div>
+</body>
+</html>

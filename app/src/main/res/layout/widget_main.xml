@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="8dp">
+
+    <!-- Header row: logo + pills + add button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="2dp">
+
+        <ImageView
+            android:id="@+id/app_logo"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_naicenotes_logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="Open Naice Notes" />
+
+        <LinearLayout
+            android:id="@+id/pills_container"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="start|center_vertical">
+
+            <LinearLayout android:id="@+id/pill_0" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_0_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_0_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_1" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_1_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_1_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_2" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_2_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_2_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_3" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_3_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_3_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_4" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_4_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_4_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_5" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_5_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_5_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_6" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_6_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_6_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/pill_7" style="@style/WidgetPill">
+                <ImageView android:id="@+id/pill_7_dot" style="@style/WidgetPillDot" />
+                <TextView android:id="@+id/pill_7_text" style="@style/WidgetPillText" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/add_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:src="@drawable/ic_widget_add"
+            android:background="@drawable/widget_add_button_bg"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Add" />
+    </LinearLayout>
+
+    <!-- Items list -->
+    <ListView
+        android:id="@+id/items_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/empty_state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:textColor="@color/widget_text_muted"
+        android:text="Tap + to add"
+        android:visibility="gone" />
+</LinearLayout>

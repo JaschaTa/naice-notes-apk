@@ -1,0 +1,10 @@
+# Copy to `local.properties` and fill in the values.
+# `local.properties` is gitignored.
+
+# Required: path to your Android SDK
+sdk.dir=/Users/you/Library/Android/sdk
+
+# Optional: recipe-scan backend (see README). If omitted, the app builds and
+# runs fine — the "scan recipe" action just shows a "not configured" message.
+RECIPE_SCAN_URL=
+RECIPE_SCAN_SECRET=

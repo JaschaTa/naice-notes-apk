@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_bg">#1A1A1A</color>
+    <color name="widget_text">#FAFAFA</color>
+    <color name="widget_text_muted">#888888</color>
+    <color name="widget_pill_bg_inactive">#33FFFFFF</color>
+    <color name="widget_pill_text_inactive">#FAFAFA</color>
+    <color name="widget_outline">#44FFFFFF</color>
+</resources>
