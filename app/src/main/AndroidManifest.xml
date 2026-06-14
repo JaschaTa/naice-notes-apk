@@ -31,6 +31,7 @@
             android:name=".widget.QuickAddActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:taskAffinity=""
             android:theme="@style/Theme.NaiceNotes.Transparent" />
 
         <activity

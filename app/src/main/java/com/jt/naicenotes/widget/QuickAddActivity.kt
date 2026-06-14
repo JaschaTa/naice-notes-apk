@@ -57,7 +57,13 @@ class QuickAddActivity : ComponentActivity() {
                         WidgetPrefs.getSelectedId(this@QuickAddActivity)
                     },
                     onSave = { sectionId, text ->
-                        app.appScope.launch { app.repository.addItem(sectionId, text) }
+                        app.appScope.launch {
+                            // Jump the widget to the section we're adding to, then add
+                            // the item — addItem's onChange triggers a widget re-render
+                            // that reads this updated selection, so the new item shows.
+                            WidgetPrefs.setSelectedId(applicationContext, sectionId)
+                            app.repository.addItem(sectionId, text)
+                        }
                     },
                     onDismiss = { finish() },
                 )
