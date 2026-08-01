@@ -66,8 +66,25 @@ contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
 
 **Material `TextField` enforces a 56dp minimum height.** Too tall for a composer sitting above a keyboard. `BasicTextField` inside a styled `Box` is the compact alternative, used for both the composer and inline row editing.
 
+**Room runs in WAL mode — `cat`ting just the `.db` file gives a stale snapshot (v1.4).** Pulling `databases/naice-notes.db` on its own omits everything still sitting in `naice-notes.db-wal`, so recent writes appear missing and it looks like data was lost. Copy `.db`, `.db-wal` and `.db-shm` together and let SQLite replay the log, or force a checkpoint first. Note the app sandbox has no `sqlite3` binary, so inspect the pulled copy on the host:
+
+```bash
+adb exec-out run-as com.jt.naicenotes cat databases/naice-notes.db > pre.db   # incomplete on its own!
+```
+
+**Wikimedia 403s image requests from unrecognised clients (v1.4).** An `og:image` on `upload.wikimedia.org` fetched fine via OkHttp but failed to load in Coil, because Coil's default User-Agent gets refused. Link thumbnails therefore build an `ImageRequest` with an explicit browser User-Agent. Independently, the thumbnail draws its fallback icon *underneath* the `AsyncImage` rather than in an `else` branch — a failed load then reveals the icon instead of leaving an empty box.
+
 ## Layout invariants worth not breaking
 
 - Items are ordered `position ASC, createdAt ASC`. New items go to the **top**: the DAO's `insertAtTop` / `insertAllAtTop` shift existing rows down inside a `@Transaction`, so a partial shift can't scramble a section.
 - Undo-delete deliberately restores an item to its *original* position, not the top.
 - Inside a bounded `Column`, a `LazyColumn` sibling must use `weight(1f)`, not `fillMaxSize()` — the latter requests the full parent height and overflows by the height of whatever sits beside it.
+- Link rows are capped at a single-line title (`maxLines = 1`) so they stay a predictable two lines tall. Variable-height cards were explicitly rejected during design — see `design-mockups/link-0*.html`.
+
+## Database migrations
+
+The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above).
+
+## Link previews
+
+Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL via `LinkDetector`, and hands the text to the repository. `NotesRepository.addItem` detects the URL and fires the `onLinkDetected` callback, which `NaiceNotesApp` wires to a background Open Graph fetch — so *every* add path (composer, widget quick-add, share) gets previews without knowing about networking. Fetching is direct from the device, best-effort: a failure leaves the raw URL showing, and `retryMissingLinkPreviews()` retries on next launch for links shared while offline.

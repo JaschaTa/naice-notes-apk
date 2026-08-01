@@ -28,6 +28,22 @@
         </activity>
 
         <activity
+            android:name=".share.ShareTargetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:label="@string/share_target_label"
+            android:theme="@style/Theme.NaiceNotes.Transparent">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".widget.QuickAddActivity"
             android:exported="true"
             android:excludeFromRecents="true"

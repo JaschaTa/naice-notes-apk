@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Naice Notes</string>
     <string name="widget_description">Naice Notes — quick add and check off</string>
+    <string name="share_target_label">Add to Naice Notes</string>
 </resources>

@@ -3,11 +3,18 @@ package com.jt.naicenotes.data.repo
 import com.jt.naicenotes.data.db.AppDatabase
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
+import com.jt.naicenotes.data.remote.LinkDetector
 import kotlinx.coroutines.flow.Flow
 
 class NotesRepository(
     private val db: AppDatabase,
     private val onChange: suspend () -> Unit = {},
+    /**
+     * Called when an added item turns out to contain a URL. The app wires this to a
+     * background Open Graph fetch so every add path gets previews without knowing about
+     * networking.
+     */
+    private val onLinkDetected: (itemId: Long, url: String) -> Unit = { _, _ -> },
 ) {
 
     private val sections = db.sectionDao()
@@ -52,10 +59,24 @@ class NotesRepository(
 
     /** New items land at the top of the section, not the bottom. */
     suspend fun addItem(sectionId: Long, text: String): Long {
-        val id = items.insertAtTop(Item(sectionId = sectionId, text = text, position = 0))
+        val url = LinkDetector.findUrl(text)
+        val id = items.insertAtTop(
+            Item(sectionId = sectionId, text = text, position = 0, linkUrl = url),
+        )
         onChange()
+        if (url != null) onLinkDetected(id, url)
         return id
     }
+
+    suspend fun getItem(id: Long): Item? = items.getById(id)
+
+    suspend fun setLinkPreview(id: Long, title: String?, imageUrl: String?) {
+        items.setLinkPreview(id, title, imageUrl)
+        onChange()
+    }
+
+    /** Links whose preview never landed — offline at share time, or a transient failure. */
+    suspend fun linksMissingPreview(): List<Item> = items.listLinksMissingPreview()
 
     suspend fun bulkAddItems(sectionId: Long, texts: List<String>): List<Long> {
         if (texts.isEmpty()) return emptyList()

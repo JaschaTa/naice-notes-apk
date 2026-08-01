@@ -1,5 +1,8 @@
 package com.jt.naicenotes.ui.home
 
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
@@ -80,14 +85,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.ui.common.ColorPickerDialog
@@ -513,6 +524,7 @@ private fun ItemRow(
     var draft by remember(item.id, item.text) { mutableStateOf(item.text) }
     var hasBeenFocused by remember(item.id, editing) { mutableStateOf(false) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val context = LocalContext.current
 
     fun commit() {
         val trimmed = draft.trim()
@@ -572,7 +584,16 @@ private fun ItemRow(
                     modifier = Modifier.size(22.dp),
                 )
             }
-            if (editing) {
+            if (item.isLink && !editing) {
+                LinkContent(
+                    item = item,
+                    onOpen = { openLink(context, item.linkUrl) },
+                    onEdit = {
+                        draft = item.text
+                        editing = true
+                    },
+                )
+            } else if (editing) {
                 androidx.compose.foundation.text.BasicTextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -620,6 +641,103 @@ private fun ItemRow(
             }
         }
     }
+}
+
+/**
+ * Compact link card: thumbnail + title + domain, two lines tall. Tapping opens the page;
+ * long-press falls back to editing the raw text, since tap is taken.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RowScope.LinkContent(
+    item: Item,
+    onOpen: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    val dim = item.isChecked
+    val strike = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None
+
+    Row(
+        modifier = Modifier
+            .weight(1f)
+            .heightIn(min = 44.dp)
+            .combinedClickable(onClick = onOpen, onLongClick = onEdit)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        LinkThumbnail(url = item.linkImageUrl, dim = dim)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.displayText,
+                style = MaterialTheme.typography.bodyLarge.copy(textDecoration = strike),
+                color = if (dim) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+                // One line, per mock A: link rows stay a predictable two lines tall so a
+                // few of them can't reflow the list the way variable-height cards would.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            item.linkDomain?.let { domain ->
+                Text(
+                    text = domain,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LinkThumbnail(url: String?, dim: Boolean) {
+    val context = LocalContext.current
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Drawn underneath, always. A loaded image covers it; a failed or pending load
+        // leaves it visible, so a broken image can never render as an empty hole.
+        Icon(
+            imageVector = Icons.Outlined.Link,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        if (url != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    // Wikimedia (and others) 403 requests from unrecognised clients.
+                    .setHeader("User-Agent", IMAGE_USER_AGENT)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alpha = if (dim) 0.45f else 1f,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+private const val IMAGE_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/140.0.0.0 Mobile Safari/537.36"
+
+private fun openLink(context: android.content.Context, url: String?) {
+    val target = url ?: return
+    val intent = Intent(Intent.ACTION_VIEW, target.toUri()).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure { Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show() }
 }
 
 @Composable
