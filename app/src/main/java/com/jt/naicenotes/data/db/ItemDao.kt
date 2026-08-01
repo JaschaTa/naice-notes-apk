@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.jt.naicenotes.data.entity.Item
 import kotlinx.coroutines.flow.Flow
@@ -21,14 +22,36 @@ interface ItemDao {
     @Query("UPDATE items SET position = :position WHERE id = :id")
     suspend fun setPosition(id: Long, position: Int)
 
-    @Query("SELECT COALESCE(MAX(position), -1) FROM items WHERE sectionId = :sectionId")
-    suspend fun maxPositionInSection(sectionId: Long): Int
+    @Query("UPDATE items SET position = position + :delta WHERE sectionId = :sectionId")
+    suspend fun shiftPositions(sectionId: Long, delta: Int)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(item: Item): Long
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(items: List<Item>): List<Long>
+
+    /**
+     * Insert at the head of the section. Every existing row shifts down one so the
+     * new row can own position 0; the caller's `position` is ignored. Transactional —
+     * a half-applied shift would scramble the section's order.
+     */
+    @Transaction
+    suspend fun insertAtTop(item: Item): Long {
+        shiftPositions(item.sectionId, 1)
+        return insert(item.copy(position = 0))
+    }
+
+    /**
+     * Insert a batch at the head, keeping the batch's own order (its first element
+     * ends up topmost). Existing rows shift down by the batch size.
+     */
+    @Transaction
+    suspend fun insertAllAtTop(sectionId: Long, newItems: List<Item>): List<Long> {
+        if (newItems.isEmpty()) return emptyList()
+        shiftPositions(sectionId, newItems.size)
+        return insertAll(newItems.mapIndexed { index, item -> item.copy(position = index) })
+    }
 
     @Update
     suspend fun update(item: Item)

@@ -10,19 +10,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -50,14 +54,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,8 +78,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
@@ -93,6 +98,13 @@ import com.jt.naicenotes.ui.util.rememberRepository
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import kotlin.math.abs
+
+/**
+ * Fraction of a row's width the finger must actually travel before a swipe deletes.
+ * Guards against accidental deletes; raise it to make swiping stiffer still.
+ */
+private const val SWIPE_DELETE_FRACTION = 0.45f
 
 private sealed interface HomeDialog {
     data object NewSection : HomeDialog
@@ -137,6 +149,12 @@ fun HomeScreen(
     val accent = selectedSection?.let { Color(it.color) } ?: MaterialTheme.colorScheme.primary
 
     Scaffold(
+        // The activity is edge-to-edge, so the window never resizes for the keyboard
+        // and Compose owns the inset. Union rather than stacking a separate
+        // imePadding(): per side this takes the larger of the two, so the bottom is
+        // the nav bar when the keyboard is closed and the IME height when it's open —
+        // never the sum, which is what squeezed the list to nothing.
+        contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
@@ -421,7 +439,9 @@ private fun ItemsList(
 
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize(),
+            // weight, not fillMaxSize: the count line above is a sibling, so filling
+            // the parent's full height would overflow the column by that much.
+            modifier = Modifier.weight(1f),
         ) {
             items(orderedItems, key = { it.id }) { item ->
                 ReorderableItem(reorderableState, key = item.id) { isDragging ->
@@ -459,14 +479,32 @@ private fun ItemRow(
     onDelete: () -> Unit,
     onSaveText: (String) -> Unit,
 ) {
+    // Material settles a swipe on fling velocity as well as distance, so a quick
+    // flick dismisses however short it was — the accidental-delete case. Material3
+    // 1.4 exposes no velocity knob, so gate on how far the finger actually travelled
+    // before release and veto anything shorter. positionalThreshold covers the
+    // slow-drag path; this covers the fling path.
+    var rowWidthPx by remember { mutableFloatStateOf(0f) }
+    val stateHolder = remember { arrayOfNulls<SwipeToDismissBoxState>(1) }
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart || value == SwipeToDismissBoxValue.StartToEnd) {
-                onDelete()
+            if (value == SwipeToDismissBoxValue.Settled) {
+                // Always allow springing back to rest.
                 true
-            } else false
+            } else {
+                val travelled = stateHolder[0]
+                    ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrDefault(0f) }
+                    ?: 0f
+                val farEnough = rowWidthPx > 0f &&
+                    travelled >= rowWidthPx * SWIPE_DELETE_FRACTION
+                if (farEnough) onDelete()
+                farEnough
+            }
         },
+        positionalThreshold = { totalDistance -> totalDistance * SWIPE_DELETE_FRACTION },
     )
+    stateHolder[0] = dismissState
 
     val bg = if (isDragging) MaterialTheme.colorScheme.surfaceContainerHigh
         else MaterialTheme.colorScheme.surface
@@ -493,6 +531,7 @@ private fun ItemRow(
 
     SwipeToDismissBox(
         state = dismissState,
+        modifier = Modifier.onSizeChanged { rowWidthPx = it.width.toFloat() },
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -685,7 +724,6 @@ private fun BottomToolbar(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
     sectionName: String,
@@ -693,45 +731,54 @@ private fun Composer(
     onSubmit: (String) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+
+    fun submit() {
+        val trimmed = text.trim()
+        if (trimmed.isNotEmpty()) {
+            onSubmit(trimmed)
+            text = ""
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .imePadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.weight(1f),
-            placeholder = { Text("Add to $sectionName") },
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(
-                onSend = {
-                    val trimmed = text.trim()
-                    if (trimmed.isNotEmpty()) {
-                        onSubmit(trimmed)
-                        text = ""
-                    }
-                },
-            ),
-        )
+        // BasicTextField in a pill rather than Material's TextField: the latter
+        // forces a 56dp min height, which eats list rows once the keyboard is up.
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            if (text.isEmpty()) {
+                Text(
+                    text = "Add to $sectionName",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { submit() }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         IconButton(
-            onClick = {
-                val trimmed = text.trim()
-                if (trimmed.isNotEmpty()) {
-                    onSubmit(trimmed)
-                    text = ""
-                }
-            },
+            onClick = { submit() },
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = accent,
                 contentColor = Color.White,

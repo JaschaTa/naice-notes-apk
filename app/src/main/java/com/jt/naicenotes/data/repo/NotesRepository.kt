@@ -50,20 +50,17 @@ class NotesRepository(
         onChange()
     }
 
+    /** New items land at the top of the section, not the bottom. */
     suspend fun addItem(sectionId: Long, text: String): Long {
-        val nextPosition = items.maxPositionInSection(sectionId) + 1
-        val id = items.insert(Item(sectionId = sectionId, text = text, position = nextPosition))
+        val id = items.insertAtTop(Item(sectionId = sectionId, text = text, position = 0))
         onChange()
         return id
     }
 
     suspend fun bulkAddItems(sectionId: Long, texts: List<String>): List<Long> {
         if (texts.isEmpty()) return emptyList()
-        val basePosition = items.maxPositionInSection(sectionId) + 1
-        val rows = texts.mapIndexed { index, text ->
-            Item(sectionId = sectionId, text = text, position = basePosition + index)
-        }
-        val ids = items.insertAll(rows)
+        val rows = texts.map { Item(sectionId = sectionId, text = it, position = 0) }
+        val ids = items.insertAllAtTop(sectionId, rows)
         onChange()
         return ids
     }
