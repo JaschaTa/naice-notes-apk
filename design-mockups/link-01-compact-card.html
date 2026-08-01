@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Link preview — Compact card</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background:#1C1C1E; font-family:Roboto,-apple-system,system-ui,sans-serif; padding:24px; }
+  h1 { color:#fff; font-size:16px; font-weight:700; margin-bottom:4px; }
+  .note { color:rgba(255,255,255,.55); font-size:13px; margin-bottom:18px; max-width:340px; line-height:1.5; }
+  .phone { width:340px; background:#0a0a0c; border-radius:26px; height:680px; overflow:hidden;
+           border:1px solid #2a2a30; display:flex; flex-direction:column; }
+  .status { display:flex; justify-content:space-between; padding:9px 16px 2px; color:#e8e8ea; font-size:11px; }
+  .h1 { color:#fff; font-size:29px; font-weight:800; letter-spacing:-.5px; padding:6px 18px 10px; }
+  .pills { display:flex; gap:7px; padding:0 18px 9px; }
+  .pill { border:1.5px solid #43434b; border-radius:999px; padding:5px 11px; color:#e8e8ea;
+          font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:5px; }
+  .pill.on { background:#3f9c5a; border-color:#3f9c5a; color:#fff; }
+  .dot { width:6px; height:6px; border-radius:50%; background:#3f9c5a; }
+  .pill.on .dot { background:#fff; }
+  .count { color:#8b8b93; font-size:12px; padding:3px 20px 6px; }
+  .list { flex:1; }
+  .row { display:flex; align-items:center; gap:11px; padding:7px 16px; }
+  .cb { width:21px; height:21px; border-radius:50%; border:2px solid #6a6a72; flex:none; }
+  .txt { color:#f2f2f4; font-size:16.5px; }
+  .thumb { width:44px; height:44px; border-radius:8px; flex:none; }
+  .meta { min-width:0; }
+  .title { color:#f2f2f4; font-size:16px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dom { color:#8b8b93; font-size:12.5px; margin-top:2px; }
+  .composer { display:flex; align-items:center; gap:8px; padding:9px 12px 14px; border-top:1px solid #232329; }
+  .field { flex:1; background:#2b2b30; border-radius:20px; padding:9px 14px; color:#8b8b93; font-size:15px; }
+  .send { width:38px; height:38px; border-radius:50%; background:#3f9c5a; display:flex;
+          align-items:center; justify-content:center; color:#fff; font-size:16px; flex:none; }
+</style>
+</head>
+<body>
+<h1>A · Compact card</h1>
+<div class="note">Thumbnail + title + domain. Two lines tall — roughly double a normal row. Thumbnail helps recognition for recipes.</div>
+<div class="phone">
+  <div class="status"><span>20:41</span><span>▮</span></div>
+  <div class="h1">food</div>
+  <div class="pills">
+    <div class="pill on"><span class="dot"></span>food</div>
+    <div class="pill"><span class="dot" style="background:#e8833a"></span>dm</div>
+    <div class="pill">+ new</div>
+  </div>
+  <div class="count">5 open</div>
+  <div class="list">
+    <div class="row">
+      <div class="cb"></div>
+      <div class="thumb" style="background:linear-gradient(140deg,#7d5636,#b98a5c)"></div>
+      <div class="meta"><div class="title">Bester Schokokuchen</div><div class="dom">chefkoch.de</div></div>
+    </div>
+    <div class="row"><div class="cb"></div><div class="txt">Milch</div></div>
+    <div class="row"><div class="cb"></div><div class="txt">Brot</div></div>
+    <div class="row">
+      <div class="cb"></div>
+      <div class="thumb" style="background:linear-gradient(140deg,#33506f,#6b8fb5)"></div>
+      <div class="meta"><div class="title">Sonos Era 100 Smart Speaker</div><div class="dom">mediamarkt.de</div></div>
+    </div>
+    <div class="row"><div class="cb"></div><div class="txt">Zahnpasta</div></div>
+  </div>
+  <div class="composer"><div class="field">Add to food</div><div class="send">➤</div></div>
+</div>
+</body>
+</html>
