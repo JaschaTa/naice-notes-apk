@@ -231,7 +231,9 @@ object ClassicWidgetRenderer {
                 "setImageTintList",
                 ColorStateList.valueOf(if (item.isChecked) accent else mutedColor),
             )
-            val displayText = item.text.ifBlank { "(empty)" }
+            // item.displayText, not item.text: link rows must show their fetched page
+            // title here too, otherwise the widget renders a raw tracking URL.
+            val displayText = item.displayText.ifBlank { "(empty)" }
             itemRv.setTextViewText(R.id.item_text, displayText)
             val paintFlags = if (item.isChecked) {
                 Paint.STRIKE_THRU_TEXT_FLAG or Paint.ANTI_ALIAS_FLAG

@@ -72,6 +72,14 @@ contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
 adb exec-out run-as com.jt.naicenotes cat databases/naice-notes.db > pre.db   # incomplete on its own!
 ```
 
+**`og:` tags are not reliably in `<head>` (v1.4.1).** Pinterest emits them ~1.06 MB into a 1.1 MB document, so an early read cap silently finds nothing. `LinkPreviewClient` reads up to `MAX_HTML_BYTES` (2 MB) rather than a small head window. Find the real offset with `grep -abo 'og:title' page.html`.
+
+**Some sites cannot be scraped from the device at all (v1.4.1).** Etsy returns 403 to a plain OkHttp client even with a complete browser header set — UA, `sec-ch-ua`, `Sec-Fetch-*`, `Accept-Language`. It's TLS/JS fingerprinting, not header sniffing, so headers can't fix it. kaufland.de serves the first request then 403s repeats (rate limiting). Hence two behaviours: `Item.displayText` falls back to a URL-slug-derived label so blocked links still read sensibly, and `PermanentFetchException` (4xx except 408/429, non-HTML, no metadata) sets `linkFetchFailed` so launch-time retry stops hammering them.
+
+**Strip scheme *and* host before deriving a slug label (v1.4.1).** `https://www.kaufland.de/` otherwise treats the hostname as a path segment and renders "Www.kaufland". Covered by `ItemDisplayTextTest`, which caught exactly this.
+
+**The widget renders `item.displayText`, not `item.text` (v1.4.1).** Otherwise link rows show raw tracking URLs in the widget while the app shows proper titles.
+
 **Wikimedia 403s image requests from unrecognised clients (v1.4).** An `og:image` on `upload.wikimedia.org` fetched fine via OkHttp but failed to load in Coil, because Coil's default User-Agent gets refused. Link thumbnails therefore build an `ImageRequest` with an explicit browser User-Agent. Independently, the thumbnail draws its fallback icon *underneath* the `AsyncImage` rather than in an `else` branch — a failed load then reveals the icon instead of leaving an empty box.
 
 ## Layout invariants worth not breaking

@@ -1,8 +1,10 @@
 package com.jt.naicenotes
 
 import android.app.Application
+import android.util.Log
 import com.jt.naicenotes.data.db.AppDatabase
 import com.jt.naicenotes.data.remote.LinkPreviewClient
+import com.jt.naicenotes.data.remote.PermanentFetchException
 import com.jt.naicenotes.data.repo.NotesRepository
 import com.jt.naicenotes.widget.ClassicWidgetRenderer
 import kotlinx.coroutines.CoroutineScope
@@ -39,9 +41,18 @@ class NaiceNotesApp : Application() {
      */
     private fun fetchLinkPreview(itemId: Long, url: String) {
         appScope.launch {
-            val preview = linkPreviews.fetch(url).getOrNull() ?: return@launch
-            if (preview.title == null && preview.imageUrl == null) return@launch
-            repository.setLinkPreview(itemId, preview.title, preview.imageUrl)
+            linkPreviews.fetch(url)
+                .onSuccess { preview ->
+                    repository.setLinkPreview(itemId, preview.title, preview.imageUrl)
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "Link preview failed for $url", error)
+                    // Permanent failures stop retrying; the item falls back to its
+                    // URL-derived label. Transient ones stay eligible for next launch.
+                    if (error is PermanentFetchException) {
+                        repository.markLinkFetchFailed(itemId)
+                    }
+                }
         }
     }
 
@@ -60,6 +71,7 @@ class NaiceNotesApp : Application() {
     }
 
     companion object {
+        private const val TAG = "NaiceNotes"
         private const val SEED_COLOR_SHOPPING = 0xFF4CAF50.toInt()
         private const val SEED_COLOR_WORK = 0xFF2196F3.toInt()
 

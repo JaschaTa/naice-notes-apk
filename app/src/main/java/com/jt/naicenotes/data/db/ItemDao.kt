@@ -22,11 +22,20 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE id = :id")
     suspend fun getById(id: Long): Item?
 
-    @Query("SELECT * FROM items WHERE linkUrl IS NOT NULL AND linkTitle IS NULL")
+    @Query(
+        "SELECT * FROM items WHERE linkUrl IS NOT NULL AND linkTitle IS NULL " +
+            "AND linkFetchFailed = 0",
+    )
     suspend fun listLinksMissingPreview(): List<Item>
 
-    @Query("UPDATE items SET linkTitle = :title, linkImageUrl = :imageUrl WHERE id = :id")
+    @Query(
+        "UPDATE items SET linkTitle = :title, linkImageUrl = :imageUrl, " +
+            "linkFetchFailed = 0 WHERE id = :id",
+    )
     suspend fun setLinkPreview(id: Long, title: String?, imageUrl: String?)
+
+    @Query("UPDATE items SET linkFetchFailed = 1 WHERE id = :id")
+    suspend fun markLinkFetchFailed(id: Long)
 
     @Query("UPDATE items SET position = :position WHERE id = :id")
     suspend fun setPosition(id: Long, position: Int)

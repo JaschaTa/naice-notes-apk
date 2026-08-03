@@ -78,6 +78,9 @@ class NotesRepository(
     /** Links whose preview never landed — offline at share time, or a transient failure. */
     suspend fun linksMissingPreview(): List<Item> = items.listLinksMissingPreview()
 
+    /** Stop retrying a link whose fetch failed permanently (blocked, gone, no metadata). */
+    suspend fun markLinkFetchFailed(id: Long) = items.markLinkFetchFailed(id)
+
     suspend fun bulkAddItems(sectionId: Long, texts: List<String>): List<Long> {
         if (texts.isEmpty()) return emptyList()
         val rows = texts.map { Item(sectionId = sectionId, text = it, position = 0) }

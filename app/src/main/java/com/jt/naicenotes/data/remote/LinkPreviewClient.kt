@@ -15,6 +15,13 @@ data class LinkPreview(
 )
 
 /**
+ * The fetch failed in a way that retrying cannot fix — the site blocks us (403), the page
+ * is gone (404), or it served HTML with no usable metadata. Callers should stop retrying;
+ * everything else (timeouts, 5xx, offline) is transient and worth another attempt.
+ */
+class PermanentFetchException(message: String) : IOException(message)
+
+/**
  * Extracts the first URL from arbitrary shared text. Share intents commonly arrive as
  * "Some page title https://example.com/x" rather than a bare URL.
  */
@@ -38,8 +45,11 @@ object LinkDetector {
 class LinkPreviewClient {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        // 10s connect was too tight in practice — one kaufland.de fetch timed out at
+        // exactly 10000ms on mobile while an identical one succeeded. Read timeout is
+        // generous because some pages put og: tags a megabyte in.
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -55,20 +65,31 @@ class LinkPreviewClient {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                if (!response.isSuccessful) {
+                    // 4xx means the site refused us or the page is gone — retrying is
+                    // pointless and, for rate-limit-driven 403s, actively unhelpful.
+                    // 408/429 are the exceptions: they explicitly invite a later retry.
+                    throw if (response.code in 400..499 && response.code !in RETRYABLE_CODES) {
+                        PermanentFetchException("HTTP ${response.code}")
+                    } else {
+                        IOException("HTTP ${response.code}")
+                    }
+                }
 
                 val contentType = response.header("Content-Type").orEmpty()
                 if (contentType.isNotBlank() && !contentType.contains("html", ignoreCase = true)) {
-                    throw IOException("Not an HTML page: $contentType")
+                    throw PermanentFetchException("Not an HTML page: $contentType")
                 }
 
                 val body = response.body ?: throw IOException("Empty body")
-                // og: tags live in <head>; reading the whole page would be wasteful on
-                // image-heavy sites and some pages are megabytes.
+                // og: tags are *usually* in <head>, but not reliably: Pinterest emits
+                // them ~1.06 MB into a 1.1 MB document. Read generously and cap only to
+                // avoid unbounded memory on a pathological page.
                 val head = body.source().let { source ->
-                    source.request(HEAD_BYTES.toLong())
-                    source.buffer.snapshot(minOf(HEAD_BYTES.toLong(), source.buffer.size).toInt())
-                        .utf8()
+                    source.request(MAX_HTML_BYTES.toLong())
+                    source.buffer.snapshot(
+                        minOf(MAX_HTML_BYTES.toLong(), source.buffer.size).toInt(),
+                    ).utf8()
                 }
 
                 val meta = parseMetaTags(head)
@@ -78,7 +99,10 @@ class LinkPreviewClient {
                 val image = (meta["og:image"] ?: meta["twitter:image"])
                     ?.let { absolutise(it, response.request.url.toString()) }
 
-                if (title == null && image == null) throw IOException("No preview metadata")
+                // Page loaded fine but carries nothing usable — that won't change.
+                if (title == null && image == null) {
+                    throw PermanentFetchException("No preview metadata")
+                }
                 LinkPreview(title = title?.trim()?.take(MAX_TITLE), imageUrl = image)
             }
         }
@@ -110,7 +134,10 @@ class LinkPreviewClient {
         const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/140.0.0.0 Mobile Safari/537.36"
-        const val HEAD_BYTES = 192 * 1024
+        const val MAX_HTML_BYTES = 2 * 1024 * 1024
+
+        /** 408 Request Timeout and 429 Too Many Requests both invite a later retry. */
+        val RETRYABLE_CODES = setOf(408, 429)
         const val MAX_TITLE = 140
         val META_TAG_REGEX = Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE)
         val TITLE_REGEX = Regex("""<title[^>]*>([\s\S]{1,300}?)</title>""", RegexOption.IGNORE_CASE)

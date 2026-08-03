@@ -11,7 +11,7 @@ import com.jt.naicenotes.data.entity.Section
 
 @Database(
     entities = [Section::class, Item::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +31,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v3 records permanently-failed link fetches so they stop being retried. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE items ADD COLUMN linkFetchFailed INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -40,7 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // Never fall back to destructive migration — this DB is the only
                     // copy of Jascha's real notes and there is no export yet.
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
     }
