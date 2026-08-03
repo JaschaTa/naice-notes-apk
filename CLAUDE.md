@@ -92,7 +92,17 @@ Caveat: this is User-Agent spoofing, milder than the Chrome claim it replaced bu
 
 **kaufland.de rate-limits repeats.** It serves the first request then 403s identical follow-ups, which is why one duplicate previewed and its twin didn't. `PermanentFetchException` sets `linkFetchFailed` so launch-time retry stops hammering it; `Item.displayText` falls back to a URL-slug label so blocked links still read sensibly.
 
-Note: `linkFetchFailed` is **not** cleared when the fetch strategy changes, so links marked failed under an older User-Agent policy won't be retried automatically. Delete and re-add, or clear the column, if an old failure should get another go.
+`linkFetchFailed` records a failure under the *then-current* UA policy, so changing `UserAgents.ORDERED` should come with a migration that clears it — `MIGRATION_3_4` is the precedent.
+
+## Debugging on a locked device
+
+Two traps cost real time here, both of which make a working app look broken:
+
+**A dozing phone can't resolve DNS for background work.** Launching via `adb shell monkey` while the screen is locked runs the app, but network fetches fail in ~5s with `UnknownHostException: No address associated with hostname` — not a timeout. It looks like a bug in the fetch code and isn't. Wake and unlock before judging anything network-related.
+
+**logcat drops stack-trace continuation lines under a tag filter.** `Log.w(TAG, msg, throwable)` printed only the message, so the cause was invisible exactly when needed — and `logcat -s NaiceNotes:*` additionally dies on zsh globbing (quote it: `logcat "NaiceNotes:I" "*:S"`). Failures therefore log the exception **inline** in the message string. Also beware piping logcat through `head` while grepping: install-time noise fills the first screenful and it's easy to conclude, wrongly, that the app logged nothing.
+
+`retryMissingLinkPreviews()` logs its queue size at `I` on every launch — that one line distinguishes "the query found nothing" from "the fetch failed", which was the crux of this diagnosis.
 
 **Strip scheme *and* host before deriving a slug label (v1.4.1).** `https://www.kaufland.de/` otherwise treats the hostname as a path segment and renders "Www.kaufland". Covered by `ItemDisplayTextTest`, which caught exactly this.
 

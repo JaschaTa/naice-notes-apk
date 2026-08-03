@@ -46,7 +46,14 @@ class NaiceNotesApp : Application() {
                     repository.setLinkPreview(itemId, preview.title, preview.imageUrl)
                 }
                 .onFailure { error ->
-                    Log.w(TAG, "Link preview failed for $url", error)
+                    // Exception inline rather than as a throwable arg: logcat sometimes
+                    // drops the stack-trace continuation lines under a tag filter, which
+                    // makes the actual cause invisible exactly when it's needed.
+                    Log.w(
+                        TAG,
+                        "Link preview failed for $url — " +
+                            "${error::class.java.simpleName}: ${error.message}",
+                    )
                     // Permanent failures stop retrying; the item falls back to its
                     // URL-derived label. Transient ones stay eligible for next launch.
                     if (error is PermanentFetchException) {
@@ -58,7 +65,9 @@ class NaiceNotesApp : Application() {
 
     /** Covers links shared while offline, or sites that were briefly failing. */
     private suspend fun retryMissingLinkPreviews() {
-        repository.linksMissingPreview()
+        val pending = repository.linksMissingPreview()
+        Log.i(TAG, "Link preview retry queue: ${pending.size}")
+        pending
             .take(MAX_RETRIES_PER_LAUNCH)
             .forEach { item -> item.linkUrl?.let { fetchLinkPreview(item.id, it) } }
     }

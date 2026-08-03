@@ -11,7 +11,7 @@ import com.jt.naicenotes.data.entity.Section
 
 @Database(
     entities = [Section::class, Item::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +40,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 clears `linkFetchFailed`. The flag records that a fetch failed under the
+         * *then-current* User-Agent policy; v1.4.2 changed that policy (preview-crawler
+         * UA with fallback), so previous refusals no longer say anything and the affected
+         * links deserve one more attempt. Any change to `UserAgents.ORDERED` should come
+         * with a migration like this one.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE items SET linkFetchFailed = 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -49,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // Never fall back to destructive migration — this DB is the only
                     // copy of Jascha's real notes and there is no export yet.
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { instance = it }
             }
     }
