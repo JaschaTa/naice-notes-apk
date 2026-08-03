@@ -19,9 +19,6 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE sectionId = :sectionId ORDER BY position ASC, createdAt ASC")
     suspend fun listBySection(sectionId: Long): List<Item>
 
-    @Query("SELECT * FROM items WHERE id = :id")
-    suspend fun getById(id: Long): Item?
-
     @Query(
         "SELECT * FROM items WHERE linkUrl IS NOT NULL AND linkTitle IS NULL " +
             "AND linkFetchFailed = 0",

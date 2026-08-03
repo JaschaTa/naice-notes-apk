@@ -5,5 +5,4 @@
     <color name="widget_text_muted">#888888</color>
     <color name="widget_pill_bg_inactive">#15000000</color>
     <color name="widget_pill_text_inactive">#1A1A1A</color>
-    <color name="widget_outline">#33000000</color>
 </resources>

@@ -39,8 +39,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -74,12 +72,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
@@ -90,7 +85,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -745,46 +739,6 @@ private fun openLink(context: android.content.Context, url: String?) {
     }
     runCatching { context.startActivity(intent) }
         .onFailure { Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show() }
-}
-
-@Composable
-private fun DoneDivider(count: Int) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        DashedLine(modifier = Modifier.weight(1f))
-        Text(
-            text = "$count done",
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        DashedLine(modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun DashedLine(modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-    Box(
-        modifier = modifier
-            .height(1.dp)
-            .drawWithCache {
-                val pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
-                onDrawWithContent {
-                    drawLine(
-                        color = color,
-                        start = Offset(0f, size.height / 2),
-                        end = Offset(size.width, size.height / 2),
-                        strokeWidth = 1.dp.toPx(),
-                        pathEffect = pathEffect,
-                    )
-                }
-            },
-    )
 }
 
 @Composable

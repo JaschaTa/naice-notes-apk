@@ -26,8 +26,6 @@ class NotesRepository(
 
     suspend fun listItems(sectionId: Long): List<Item> = items.listBySection(sectionId)
 
-    suspend fun getSection(id: Long): Section? = sections.getById(id)
-
     suspend fun sectionCount(): Int = sections.count()
 
     suspend fun addSection(name: String, color: Int): Long {
@@ -67,8 +65,6 @@ class NotesRepository(
         if (url != null) onLinkDetected(id, url)
         return id
     }
-
-    suspend fun getItem(id: Long): Item? = items.getById(id)
 
     suspend fun setLinkPreview(id: Long, title: String?, imageUrl: String?) {
         items.setLinkPreview(id, title, imageUrl)
