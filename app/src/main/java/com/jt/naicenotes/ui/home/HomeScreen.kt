@@ -76,7 +76,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -98,7 +97,7 @@ import com.jt.naicenotes.data.remote.UserAgents
 import com.jt.naicenotes.ui.common.ColorPickerDialog
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.SectionNameDialog
-import com.jt.naicenotes.ui.util.SectionColorPalette
+import com.jt.naicenotes.ui.util.randomSectionColor
 import com.jt.naicenotes.ui.util.rememberRepository
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -236,7 +235,7 @@ fun HomeScreen(
         onDismiss = { dialog = null },
         onCreateSection = { name ->
             scope.launch {
-                val color = SectionColorPalette.random().toArgb()
+                val color = randomSectionColor()
                 val newId = repo.addSection(name, color)
                 selectedId = newId
             }

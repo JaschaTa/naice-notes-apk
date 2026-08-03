@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.jt.naicenotes.ui.util.SectionColorPalette
 
@@ -120,10 +121,3 @@ fun ConfirmDeleteDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
-
-private fun Color.toArgb(): Int = android.graphics.Color.argb(
-    (alpha * 255).toInt(),
-    (red * 255).toInt(),
-    (green * 255).toInt(),
-    (blue * 255).toInt(),
-)

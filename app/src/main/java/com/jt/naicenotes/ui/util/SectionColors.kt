@@ -1,6 +1,7 @@
 package com.jt.naicenotes.ui.util
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 val SectionColorPalette: List<Color> = listOf(
     Color(0xFF4CAF50), // green
@@ -14,11 +15,5 @@ val SectionColorPalette: List<Color> = listOf(
     Color(0xFF607D8B), // blue-grey
 )
 
+/** Colour for a newly created section, stored as ARGB on [com.jt.naicenotes.data.entity.Section]. */
 fun randomSectionColor(): Int = SectionColorPalette.random().toArgb()
-
-private fun Color.toArgb(): Int = android.graphics.Color.argb(
-    (alpha * 255).toInt(),
-    (red * 255).toInt(),
-    (green * 255).toInt(),
-    (blue * 255).toInt(),
-)

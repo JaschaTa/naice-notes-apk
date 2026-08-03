@@ -117,6 +117,14 @@ Two traps cost real time here, both of which make a working app look broken:
 - Inside a bounded `Column`, a `LazyColumn` sibling must use `weight(1f)`, not `fillMaxSize()` — the latter requests the full parent height and overflows by the height of whatever sits beside it.
 - Link rows are capped at a single-line title (`maxLines = 1`) so they stay a predictable two lines tall. Variable-height cards were explicitly rejected during design — see `design-mockups/link-0*.html`.
 
+## Icons and theme
+
+**The app depends on `material-icons-core`, not `-extended`.** Extended is a 34 MB artifact shipping ~6,400 icons × 5 themes; this app uses 8, and with `isMinifyEnabled = false` nothing tree-shakes it — it accounted for roughly half the debug APK (69 MB → 36 MB when swapped). A new icon therefore needs **either** a name that exists in core **or** a vector drawable in `res/drawable`. Three already went that route: `ic_widget_check_off` (shared with the widget; identical to Material's `radio_button_unchecked`), `ic_link`, `ic_photo_camera`. Use `Icon(painter = painterResource(...), tint = ...)` — tint semantics match the `imageVector` overload.
+
+**`NaiceNotesTheme` is always dynamic (Material You), with no fixed-palette fallback.** minSdk is 34, so dynamic colour is guaranteed and the old `Build.VERSION.SDK_INT >= S` branch was dead. Every accent in the app comes from `Section.color`, not the scheme.
+
+**Section colours are persisted as ARGB ints** via the framework `androidx.compose.ui.graphics.toArgb`. Two hand-rolled `Color.toArgb()` extensions used to shadow it; they were provably equivalent (verified across all 256 channel values) and are gone. `SectionColorTest` locks the palette-to-literal mapping — if that test fails, stored colours are at risk.
+
 ## Database migrations
 
 The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above).
