@@ -38,9 +38,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -88,6 +85,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
@@ -99,6 +97,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.jt.naicenotes.R
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.UserAgents
@@ -578,12 +577,23 @@ private fun ItemRow(
                     .clickable(onClick = onToggle),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = if (item.isChecked) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                    contentDescription = if (item.isChecked) "Checked" else "Unchecked",
-                    tint = if (item.isChecked) accent else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(22.dp),
-                )
+                if (item.isChecked) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Checked",
+                        tint = accent,
+                        modifier = Modifier.size(22.dp),
+                    )
+                } else {
+                    // Shared with the widget; identical to Material's
+                    // radio_button_unchecked, which material-icons-core omits.
+                    Icon(
+                        painter = painterResource(R.drawable.ic_widget_check_off),
+                        contentDescription = "Unchecked",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             if (item.isLink && !editing) {
                 LinkContent(
@@ -706,7 +716,7 @@ private fun LinkThumbnail(url: String?, dim: Boolean) {
         // Drawn underneath, always. A loaded image covers it; a failed or pending load
         // leaves it visible, so a broken image can never render as an empty hole.
         Icon(
-            imageVector = Icons.Outlined.Link,
+            painter = painterResource(R.drawable.ic_link),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
@@ -799,7 +809,7 @@ private fun BottomToolbar(
             shape = CircleShape,
         ) {
             Icon(
-                Icons.Outlined.PhotoCamera,
+                painter = painterResource(R.drawable.ic_photo_camera),
                 contentDescription = "Scan recipe",
             )
         }

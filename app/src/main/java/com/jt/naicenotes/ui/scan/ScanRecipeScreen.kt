@@ -39,8 +39,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -68,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -76,6 +75,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.jt.naicenotes.BuildConfig
+import com.jt.naicenotes.R
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.RecipeScanClient
 import com.jt.naicenotes.data.util.ImageProcessor
@@ -497,12 +497,23 @@ private fun IngredientRow(
                 .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = if (item.include) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                contentDescription = if (item.include) "Included" else "Excluded",
-                tint = if (item.include) accent else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(22.dp),
-            )
+            if (item.include) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Included",
+                    tint = accent,
+                    modifier = Modifier.size(22.dp),
+                )
+            } else {
+                // Shared with the widget; identical to Material's
+                // radio_button_unchecked, which material-icons-core omits.
+                Icon(
+                    painter = painterResource(R.drawable.ic_widget_check_off),
+                    contentDescription = "Excluded",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
         BasicTextField(
             value = item.text,
