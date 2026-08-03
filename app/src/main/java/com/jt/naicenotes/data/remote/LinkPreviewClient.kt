@@ -15,11 +15,18 @@ data class LinkPreview(
 )
 
 /**
- * The fetch failed in a way that retrying cannot fix — the site blocks us (403), the page
- * is gone (404), or it served HTML with no usable metadata. Callers should stop retrying;
- * everything else (timeouts, 5xx, offline) is transient and worth another attempt.
+ * The fetch failed in a way that retrying later cannot fix — the page is gone, or it served
+ * HTML with no usable metadata. Callers should stop retrying; everything else (timeouts,
+ * 5xx, offline) is transient and worth another attempt.
  */
-class PermanentFetchException(message: String) : IOException(message)
+open class PermanentFetchException(message: String) : IOException(message)
+
+/**
+ * The site refused this client specifically (401/403/451). Retrying later won't help, but
+ * retrying *as a different User-Agent* often does — so this is the one permanent failure
+ * that's worth another immediate attempt.
+ */
+class BlockedException(message: String) : PermanentFetchException(message)
 
 /**
  * Extracts the first URL from arbitrary shared text. Share intents commonly arrive as
@@ -53,58 +60,76 @@ class LinkPreviewClient {
         .followRedirects(true)
         .build()
 
+    /**
+     * Tries each User-Agent in turn, stopping at the first the site doesn't refuse. Only a
+     * block (401/403/451) advances to the next one — a 404 or a page with no metadata fails
+     * the same way whoever asks, so there's no point paying for a second request.
+     */
     suspend fun fetch(url: String): Result<LinkPreview> = withContext(Dispatchers.IO) {
         runCatching {
-            val request = Request.Builder()
-                .url(url)
-                // Plenty of sites serve nothing useful to an unrecognised client.
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml")
-                .header("Accept-Language", "de,en;q=0.8")
-                .get()
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    // 4xx means the site refused us or the page is gone — retrying is
-                    // pointless and, for rate-limit-driven 403s, actively unhelpful.
-                    // 408/429 are the exceptions: they explicitly invite a later retry.
-                    throw if (response.code in 400..499 && response.code !in RETRYABLE_CODES) {
-                        PermanentFetchException("HTTP ${response.code}")
-                    } else {
-                        IOException("HTTP ${response.code}")
-                    }
+            var lastBlock: BlockedException? = null
+            for (userAgent in UserAgents.ORDERED) {
+                try {
+                    return@runCatching fetchWith(url, userAgent)
+                } catch (blocked: BlockedException) {
+                    lastBlock = blocked
                 }
-
-                val contentType = response.header("Content-Type").orEmpty()
-                if (contentType.isNotBlank() && !contentType.contains("html", ignoreCase = true)) {
-                    throw PermanentFetchException("Not an HTML page: $contentType")
-                }
-
-                val body = response.body ?: throw IOException("Empty body")
-                // og: tags are *usually* in <head>, but not reliably: Pinterest emits
-                // them ~1.06 MB into a 1.1 MB document. Read generously and cap only to
-                // avoid unbounded memory on a pathological page.
-                val head = body.source().let { source ->
-                    source.request(MAX_HTML_BYTES.toLong())
-                    source.buffer.snapshot(
-                        minOf(MAX_HTML_BYTES.toLong(), source.buffer.size).toInt(),
-                    ).utf8()
-                }
-
-                val meta = parseMetaTags(head)
-                val title = meta["og:title"]
-                    ?: meta["twitter:title"]
-                    ?: TITLE_REGEX.find(head)?.groupValues?.get(1)?.let(::decodeHtml)
-                val image = (meta["og:image"] ?: meta["twitter:image"])
-                    ?.let { absolutise(it, response.request.url.toString()) }
-
-                // Page loaded fine but carries nothing usable — that won't change.
-                if (title == null && image == null) {
-                    throw PermanentFetchException("No preview metadata")
-                }
-                LinkPreview(title = title?.trim()?.take(MAX_TITLE), imageUrl = image)
             }
+            throw lastBlock ?: PermanentFetchException("No user agent succeeded")
+        }
+    }
+
+    private fun fetchWith(url: String, userAgent: String): LinkPreview {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .header("Accept", "text/html,application/xhtml+xml")
+            .header("Accept-Language", "de,en;q=0.8")
+            .get()
+            .build()
+
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                // 401/403/451 = this client was refused; a different User-Agent may well
+                // be allowlisted, so signal that separately. Other 4xx are permanent for
+                // everyone. 408/429 explicitly invite a later retry.
+                throw when {
+                    response.code in BLOCKED_CODES ->
+                        BlockedException("HTTP ${response.code}")
+                    response.code in 400..499 && response.code !in RETRYABLE_CODES ->
+                        PermanentFetchException("HTTP ${response.code}")
+                    else -> IOException("HTTP ${response.code}")
+                }
+            }
+
+            val contentType = response.header("Content-Type").orEmpty()
+            if (contentType.isNotBlank() && !contentType.contains("html", ignoreCase = true)) {
+                throw PermanentFetchException("Not an HTML page: $contentType")
+            }
+
+            val body = response.body ?: throw IOException("Empty body")
+            // og: tags are *usually* in <head>, but not reliably: Pinterest emits them
+            // ~1.06 MB into a 1.1 MB document. Read generously and cap only to avoid
+            // unbounded memory on a pathological page.
+            val html = body.source().let { source ->
+                source.request(MAX_HTML_BYTES.toLong())
+                source.buffer.snapshot(
+                    minOf(MAX_HTML_BYTES.toLong(), source.buffer.size).toInt(),
+                ).utf8()
+            }
+
+            val meta = parseMetaTags(html)
+            val title = meta["og:title"]
+                ?: meta["twitter:title"]
+                ?: TITLE_REGEX.find(html)?.groupValues?.get(1)?.let(::decodeHtml)
+            val image = (meta["og:image"] ?: meta["twitter:image"])
+                ?.let { absolutise(it, response.request.url.toString()) }
+
+            // Page loaded fine but carries nothing usable — that won't change.
+            if (title == null && image == null) {
+                throw PermanentFetchException("No preview metadata")
+            }
+            LinkPreview(title = title?.trim()?.take(MAX_TITLE), imageUrl = image)
         }
     }
 
@@ -131,13 +156,13 @@ class LinkPreviewClient {
     }.getOrNull()?.takeIf { it.startsWith("http", ignoreCase = true) }
 
     private companion object {
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/140.0.0.0 Mobile Safari/537.36"
         const val MAX_HTML_BYTES = 2 * 1024 * 1024
 
         /** 408 Request Timeout and 429 Too Many Requests both invite a later retry. */
         val RETRYABLE_CODES = setOf(408, 429)
+
+        /** Refusals aimed at *this client* — worth retrying as a different User-Agent. */
+        val BLOCKED_CODES = setOf(401, 403, 451)
         const val MAX_TITLE = 140
         val META_TAG_REGEX = Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE)
         val TITLE_REGEX = Regex("""<title[^>]*>([\s\S]{1,300}?)</title>""", RegexOption.IGNORE_CASE)

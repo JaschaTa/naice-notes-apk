@@ -101,6 +101,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
+import com.jt.naicenotes.data.remote.UserAgents
 import com.jt.naicenotes.ui.common.ColorPickerDialog
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.SectionNameDialog
@@ -715,7 +716,7 @@ private fun LinkThumbnail(url: String?, dim: Boolean) {
                 model = ImageRequest.Builder(context)
                     .data(url)
                     // Wikimedia (and others) 403 requests from unrecognised clients.
-                    .setHeader("User-Agent", IMAGE_USER_AGENT)
+                    .setHeader("User-Agent", UserAgents.BROWSER)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -726,10 +727,6 @@ private fun LinkThumbnail(url: String?, dim: Boolean) {
         }
     }
 }
-
-private const val IMAGE_USER_AGENT =
-    "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/140.0.0.0 Mobile Safari/537.36"
 
 private fun openLink(context: android.content.Context, url: String?) {
     val target = url ?: return

@@ -74,7 +74,25 @@ adb exec-out run-as com.jt.naicenotes cat databases/naice-notes.db > pre.db   # 
 
 **`og:` tags are not reliably in `<head>` (v1.4.1).** Pinterest emits them ~1.06 MB into a 1.1 MB document, so an early read cap silently finds nothing. `LinkPreviewClient` reads up to `MAX_HTML_BYTES` (2 MB) rather than a small head window. Find the real offset with `grep -abo 'og:title' page.html`.
 
-**Some sites cannot be scraped from the device at all (v1.4.1).** Etsy returns 403 to a plain OkHttp client even with a complete browser header set — UA, `sec-ch-ua`, `Sec-Fetch-*`, `Accept-Language`. It's TLS/JS fingerprinting, not header sniffing, so headers can't fix it. kaufland.de serves the first request then 403s repeats (rate limiting). Hence two behaviours: `Item.displayText` falls back to a URL-slug-derived label so blocked links still read sensibly, and `PermanentFetchException` (4xx except 408/429, non-HTML, no metadata) sets `linkFetchFailed` so launch-time retry stops hammering them.
+**Sites allowlist link-preview crawlers by User-Agent (v1.4.2).** This is why a shared Etsy link previews in WhatsApp but not from a browser-shaped client. Measured against one Etsy listing:
+
+| User-Agent | Result |
+|---|---|
+| Chrome (mobile) | 403 |
+| `facebookexternalhit/1.1` | 403 |
+| `Twitterbot/1.0` | 403 |
+| `WhatsApp/2.23.20.0` | **200** |
+| `Slackbot-LinkExpanding` | **200** |
+| `Discordbot/2.0` | **200** |
+| `NaiceNotes/1.4` (honest) | 403 |
+
+Sites *want* shares to preview, so they admit crawlers they recognise and refuse everything else — claiming to be Chrome invites the most scrutiny, since a real Chrome would bring matching TLS fingerprints, JS and cookies. Etsy substring-matches the token, so `UserAgents.PREVIEW_BOT` names this app *and* carries a recognised one. `UserAgents.ORDERED` is tried in turn and only a **block** (401/403/451 → `BlockedException`) advances to the next; a 404 or a page with genuinely no metadata fails identically for every client, so there's no second request. Preview-bot goes first because it strictly out-performed the browser string on tested sites — it gets 200 from both Etsy and kaufland.de, which both 403 the browser one.
+
+Caveat: this is User-Agent spoofing, milder than the Chrome claim it replaced but spoofing nonetheless. If a site starts verifying crawlers by published IP range (as Meta and Slack do), it stops working and the item falls back to its slug label.
+
+**kaufland.de rate-limits repeats.** It serves the first request then 403s identical follow-ups, which is why one duplicate previewed and its twin didn't. `PermanentFetchException` sets `linkFetchFailed` so launch-time retry stops hammering it; `Item.displayText` falls back to a URL-slug label so blocked links still read sensibly.
+
+Note: `linkFetchFailed` is **not** cleared when the fetch strategy changes, so links marked failed under an older User-Agent policy won't be retried automatically. Delete and re-add, or clear the column, if an old failure should get another go.
 
 **Strip scheme *and* host before deriving a slug label (v1.4.1).** `https://www.kaufland.de/` otherwise treats the hostname as a path segment and renders "Www.kaufland". Covered by `ItemDisplayTextTest`, which caught exactly this.
 
