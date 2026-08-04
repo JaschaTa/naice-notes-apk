@@ -94,21 +94,23 @@ Caveat: this is User-Agent spoofing, milder than the Chrome claim it replaced bu
 
 `linkFetchFailed` records a failure under the *then-current* UA policy, so changing `UserAgents.ORDERED` should come with a migration that clears it — `MIGRATION_3_4` is the precedent.
 
+**Strip scheme *and* host before deriving a slug label (v1.4.1).** `https://www.kaufland.de/` otherwise treats the hostname as a path segment and renders "Www.kaufland". Covered by `ItemDisplayTextTest`, which caught exactly this.
+
+**The widget renders `item.displayText`, not `item.text` (v1.4.1).** Otherwise link rows show raw tracking URLs in the widget while the app shows proper titles.
+
+**Wikimedia 403s image requests from unrecognised clients (v1.4).** An `og:image` on `upload.wikimedia.org` fetched fine via OkHttp but failed to load in Coil, because Coil's default User-Agent gets refused. Link thumbnails therefore build an `ImageRequest` with an explicit browser User-Agent. Independently, the thumbnail draws its fallback icon *underneath* the `AsyncImage` rather than in an `else` branch — a failed load then reveals the icon instead of leaving an empty box.
+
 ## Debugging on a locked device
 
 Two traps cost real time here, both of which make a working app look broken:
 
 **A dozing phone can't resolve DNS for background work.** Launching via `adb shell monkey` while the screen is locked runs the app, but network fetches fail in ~5s with `UnknownHostException: No address associated with hostname` — not a timeout. It looks like a bug in the fetch code and isn't. Wake and unlock before judging anything network-related.
 
-**logcat drops stack-trace continuation lines under a tag filter.** `Log.w(TAG, msg, throwable)` printed only the message, so the cause was invisible exactly when needed — and `logcat -s NaiceNotes:*` additionally dies on zsh globbing (quote it: `logcat "NaiceNotes:I" "*:S"`). Failures therefore log the exception **inline** in the message string. Also beware piping logcat through `head` while grepping: install-time noise fills the first screenful and it's easy to conclude, wrongly, that the app logged nothing.
+**logcat drops stack-trace continuation lines under a tag filter.** `Log.w(TAG, msg, throwable)` printed only the message, so the cause was invisible exactly when needed. Failures therefore log the exception **inline** in the message string.
+
+**Unquoted globs in `zsh` silently sabotage diagnosis — this has bitten three times.** `logcat -s NaiceNotes:*` and `grep -r … --include=*.kt` both die with "no matches found" *before* running, and in a compound command the surrounding output makes it look like the tool ran and found nothing. Quote the argument: `logcat "NaiceNotes:I" "*:S"`, `grep -r "pattern" app/src/`. Related: never pipe logcat through `head` while grepping — install-time noise fills the first screenful, and it's easy to conclude wrongly that the app logged nothing.
 
 `retryMissingLinkPreviews()` logs its queue size at `I` on every launch — that one line distinguishes "the query found nothing" from "the fetch failed", which was the crux of this diagnosis.
-
-**Strip scheme *and* host before deriving a slug label (v1.4.1).** `https://www.kaufland.de/` otherwise treats the hostname as a path segment and renders "Www.kaufland". Covered by `ItemDisplayTextTest`, which caught exactly this.
-
-**The widget renders `item.displayText`, not `item.text` (v1.4.1).** Otherwise link rows show raw tracking URLs in the widget while the app shows proper titles.
-
-**Wikimedia 403s image requests from unrecognised clients (v1.4).** An `og:image` on `upload.wikimedia.org` fetched fine via OkHttp but failed to load in Coil, because Coil's default User-Agent gets refused. Link thumbnails therefore build an `ImageRequest` with an explicit browser User-Agent. Independently, the thumbnail draws its fallback icon *underneath* the `AsyncImage` rather than in an `else` branch — a failed load then reveals the icon instead of leaving an empty box.
 
 ## Layout invariants worth not breaking
 
@@ -127,7 +129,22 @@ Two traps cost real time here, both of which make a working app look broken:
 
 ## Database migrations
 
-The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above).
+**Currently at schema version 4**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`) and `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change) all registered in `AppDatabase.get()`. The next schema change is 4→5.
+
+The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above). Take a backup first: `~/naice-notes-backups/` holds one set per migration so far.
+
+## Tests
+
+```bash
+./gradlew :app:testDebugUnitTest      # JVM only, no device needed
+```
+
+Two suites, both plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
+
+- `ItemDisplayTextTest` — `Item.displayText` / `linkDomain`, including the slug fallback for sites that block metadata fetches.
+- `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
+
+`androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariant and the migrations all have no coverage.
 
 ## Link previews
 
