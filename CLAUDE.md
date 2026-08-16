@@ -116,8 +116,10 @@ Two traps cost real time here, both of which make a working app look broken:
 
 ## Layout invariants worth not breaking
 
-- Items are ordered `position ASC, createdAt ASC`. New items go to the **top**: the DAO's `insertAtTop` / `insertAllAtTop` shift existing rows down inside a `@Transaction`, so a partial shift can't scramble a section.
+- Items are ordered `position ASC, createdAt ASC`. New items go to the **top**: the DAO's `insertAtTop` / `insertAllAtTop` shift existing rows down inside a `@Transaction`, so a partial shift can't scramble a section. `moveToSectionTop` joins that family — it lands a moved item at the top of its new section and is transactional for the same reason.
 - Undo-delete deliberately restores an item to its *original* position, not the top.
+- Sections live in a fixed-width left rail (`RAIL_WIDTH`), not the horizontal pill row that preceded it. The rail is a **fixed near-black in both themes** rather than following Material You: it has to make nine saturated section colours read as accents, and a dynamic mid-tone fights them. It collapses to zero width via a header toggle, persisted in `UiPrefs` — the toggle is the active section's glyph tile in *both* states, never a chevron, so the tile always means "this section". Collapsing is a tap, not a left-edge swipe: on One UI gesture nav that edge is system back.
+- Every gesture on an item row is already taken — tap the circle toggles, tap the text edits, long-press drags, swipe deletes — which is why per-item actions hang off an explicit `⋮` menu rather than a press-reveal bar.
 - Inside a bounded `Column`, a `LazyColumn` sibling must use `weight(1f)`, not `fillMaxSize()` — the latter requests the full parent height and overflows by the height of whatever sits beside it.
 - Link rows are capped at a single-line title (`maxLines = 1`) so they stay a predictable two lines tall. Variable-height cards were explicitly rejected during design — see `design-mockups/link-0*.html`.
 
@@ -126,6 +128,8 @@ Two traps cost real time here, both of which make a working app look broken:
 **The app depends on `material-icons-core`, not `-extended`.** Extended is a 34 MB artifact shipping ~6,400 icons × 5 themes; this app uses 8, and with `isMinifyEnabled = false` nothing tree-shakes it — it accounted for roughly half the debug APK (69 MB → 36 MB when swapped). A new icon therefore needs **either** a name that exists in core **or** a vector drawable in `res/drawable`. Three already went that route: `ic_widget_check_off` (shared with the widget; identical to Material's `radio_button_unchecked`), `ic_link`, `ic_photo_camera`. Use `Icon(painter = painterResource(...), tint = ...)` — tint semantics match the `imageVector` overload.
 
 **`NaiceNotesTheme` is always dynamic (Material You), with no fixed-palette fallback.** minSdk is 34, so dynamic colour is guaranteed and the old `Build.VERSION.SDK_INT >= S` branch was dead. Every accent in the app comes from `Section.color`, not the scheme.
+
+**A section's tile is an emoji or its name's initial, and the two are styled differently.** `Section.glyph` picks one and `Section.hasEmoji` decides the styling: an emoji is already a multicoloured glyph so it sits on a ~22% wash of the section colour, while a letter has no colour of its own and takes white-on-solid to stay legible. That pairing is duplicated in four places — `RailTile`, `RailToggle`, the move-to-section picker and the widget's `renderTile` — so changing one means changing all four. `sections.emoji` is nullable and everything falls back to the initial, which is what every pre-v6 section renders. `SectionGlyphTest` locks the fallback rules.
 
 **Section colours are persisted as ARGB ints** via the framework `androidx.compose.ui.graphics.toArgb`. Two hand-rolled `Color.toArgb()` extensions used to shadow it; they were provably equivalent (verified across all 256 channel values) and are gone. `SectionColorTest` locks the palette-to-literal mapping — if that test fails, stored colours are at risk.
 
@@ -141,13 +145,16 @@ The DB holds the only copy of real notes and there is no export yet, so `AppData
 ./gradlew :app:testDebugUnitTest      # JVM only, no device needed
 ```
 
-Three suites, all plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
+Four suites, all plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
 
 - `ItemDisplayTextTest` — `Item.displayText` / `linkDomain`, including the slug fallback for sites that block metadata fetches.
 - `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
 - `InboxPushTest` — issue title derivation, dedupe-key stability and the JWT wire format for the inbox push. The dedupe assertions are the load-bearing ones: if the key stops being stable, a retry creates a duplicate task.
+- `SectionGlyphTest` — `Section.glyph` / `hasEmoji`, including blank-emoji handling, the nameless-section fallback and the multi-codepoint case. Drawn in four places and unobservable inside RemoteViews, so it's locked here instead.
 
-`androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariant and the migrations all have no coverage.
+`androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariants (`insertAtTop`, `moveToSectionTop`) and the migrations all have no coverage.
+
+Everything still uncovered needs an Android runtime, so it's blocked behind one of two choices: add Robolectric (keeps it in the fast JVM `test` task) or start using `androidTest/` with an emulator. Migrations additionally need `exportSchema = true` plus committed schema JSONs before `MigrationTestHelper` can run. Migrations are the highest-value gap — the DB is the only copy of real notes, there's no export, and `fallbackToDestructiveMigration()` is off on purpose, so a bad one is unrecoverable and is currently verified only by hand on the device.
 
 ## Link previews
 
@@ -155,7 +162,9 @@ Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL 
 
 ## Vault task inbox push
 
-A section can be marked as an inbox (section ⋮ → "Send new notes to Claude", stored as `sections.remoteKind = 'inbox'`). Notes **created** in it are POSTed to an n8n webhook that opens a GitLab issue in the vault's task inbox, which `/process-tasks` later turns into a real task. Capture only — nothing is ever read back, and there is no way to promote a note that already lives in another section (the app has no move-between-sections operation).
+A section can be marked as an inbox (section ⋮ → "Send new notes to Claude", stored as `sections.remoteKind = 'inbox'`). Notes **created** in it are POSTed to an n8n webhook that opens a GitLab issue in the vault's task inbox, which `/process-tasks` later turns into a real task. Capture only — nothing is ever read back.
+
+Moving an existing note into an inbox section does **not** push it. `moveItemToSection` deliberately doesn't fire `onInboxItem`: `pushedAt` records whether a note ever reached the vault, and re-pushing on every move would duplicate tasks. So the only way to send something is to create it there.
 
 The mechanism deliberately copies link previews: `onInboxItem` is a repository callback in the same shape as `onLinkDetected`, so composer, share target and widget quick-add all push without any of them knowing. `InboxPushClient` mirrors `RecipeScanClient`, and `retryPendingInboxPushes()` sits next to `retryMissingLinkPreviews()` in `onCreate`.
 

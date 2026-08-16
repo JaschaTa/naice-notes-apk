@@ -6,8 +6,9 @@ Built for Android 14+ (API 34), targeted at a Samsung S24 sideload. Single-user,
 
 ## Features
 
-- **Sections + checkable items** — pill-style section tabs across the top, swipe to delete (with undo), drag to reorder, tap text to inline-edit
-- **Home-screen widget** — mirrors a chosen section, tap to toggle items, "+" for quick-add, tap the logo to open the app at that section. Classic `AppWidgetProvider` + `RemoteCollectionItems` (API 31+) for atomic, flash-free updates
+- **Sections + checkable items** — a collapsible left rail of section tiles (an emoji you pick, or the name's initial) with open-item badges, swipe to delete (with undo), drag to reorder, tap text to inline-edit, and a per-item menu for edit / move to another section / delete
+- **Link previews** — share a URL to the app and it fetches the page's Open Graph title and image in the background, falling back to a readable label derived from the URL when a site blocks metadata fetches
+- **Home-screen widget** — mirrors a chosen section, tap to toggle items, "+" for quick-add, tap the logo to open the app at that section, and the same emoji tiles to switch sections. Classic `AppWidgetProvider` + `RemoteCollectionItems` (API 31+) for atomic, flash-free updates
 - **Recipe scan** — pick a recipe photo, the app sends it to a private n8n webhook which proxies a multimodal LLM, returns extracted ingredient strings, the app shows a review screen before appending to a section
 
 ## Recipe-scan backend (private)
