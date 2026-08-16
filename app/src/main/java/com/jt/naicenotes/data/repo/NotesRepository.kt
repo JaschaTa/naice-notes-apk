@@ -5,6 +5,7 @@ import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.LinkDetector
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class NotesRepository(
     private val db: AppDatabase,
@@ -30,19 +31,29 @@ class NotesRepository(
 
     fun observeItems(sectionId: Long): Flow<List<Item>> = items.observeBySection(sectionId)
 
+    /** Open-item counts keyed by section id, for the rail badges. Absent means none open. */
+    fun observeOpenCounts(): Flow<Map<Long, Int>> =
+        items.observeOpenCounts().map { rows -> rows.associate { it.sectionId to it.openCount } }
+
     suspend fun listItems(sectionId: Long): List<Item> = items.listBySection(sectionId)
 
     suspend fun sectionCount(): Int = sections.count()
 
-    suspend fun addSection(name: String, color: Int): Long {
+    suspend fun addSection(name: String, color: Int, emoji: String? = null): Long {
         val nextPosition = sections.maxPosition() + 1
-        val id = sections.insert(Section(name = name, color = color, position = nextPosition))
+        val id = sections.insert(
+            Section(name = name, color = color, position = nextPosition, emoji = emoji),
+        )
         onChange()
         return id
     }
 
-    suspend fun renameSection(section: Section, newName: String) {
-        sections.update(section.copy(name = newName))
+    /**
+     * Name and emoji are edited in the same dialog, so they're saved together — a separate
+     * emoji setter would mean two writes and two widget re-renders for one user action.
+     */
+    suspend fun renameSection(section: Section, newName: String, emoji: String? = section.emoji) {
+        sections.update(section.copy(name = newName, emoji = emoji))
         onChange()
     }
 
@@ -145,6 +156,18 @@ class NotesRepository(
 
     suspend fun deleteItem(item: Item) {
         items.delete(item)
+        onChange()
+    }
+
+    /**
+     * Move an item to another section. Lands at the top, matching where a newly added item
+     * goes. Pushing to the inbox is deliberately not re-triggered: `pushedAt` already records
+     * whether this note reached the vault, and moving it between local sections doesn't change
+     * that — re-pushing on every move would duplicate tasks.
+     */
+    suspend fun moveItemToSection(item: Item, targetSectionId: Long) {
+        if (item.sectionId == targetSectionId) return
+        items.moveToSectionTop(item.id, targetSectionId)
         onChange()
     }
 

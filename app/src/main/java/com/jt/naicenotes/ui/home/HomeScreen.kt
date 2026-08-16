@@ -15,17 +15,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,11 +41,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +60,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,6 +86,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,12 +115,29 @@ import kotlin.math.abs
  */
 private const val SWIPE_DELETE_FRACTION = 0.45f
 
+/**
+ * Width of the section rail. Every section stays visible and one tap away, which is what the
+ * horizontally-scrolling pill row couldn't promise once there were more than a handful.
+ */
+private val RAIL_WIDTH = 70.dp
+
+/**
+ * The rail is near-black in both themes rather than following the Material You scheme. It's the
+ * one surface that has to make section colours read as the accent, and a dynamic mid-tone
+ * background fights nine saturated palette colours in a way a neutral dark doesn't.
+ */
+private val RAIL_BACKGROUND = Color(0xFF1A1D21)
+
+/** Unread-style badge on a rail tile. Fixed, not from the scheme — it must never read as a section colour. */
+private val BADGE_COLOR = Color(0xFFE01E5A)
+
 private sealed interface HomeDialog {
     data object NewSection : HomeDialog
     data object RenameSection : HomeDialog
     data object RecolorSection : HomeDialog
     data object DeleteSection : HomeDialog
     data object ClearChecked : HomeDialog
+    data class MoveItem(val item: Item) : HomeDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,6 +153,8 @@ fun HomeScreen(
     var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
     var dialog by remember { mutableStateOf<HomeDialog?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val openCounts by remember(repo) { repo.observeOpenCounts() }
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
 
     // If the app was launched from the widget (logo tap), the widget passes
     // its currently-active section id in. Whenever that changes (cold start or
@@ -161,83 +185,93 @@ fun HomeScreen(
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            if (sections.isEmpty()) {
+        if (sections.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
                 EmptyState(onCreate = { dialog = HomeDialog.NewSection })
-            } else if (selectedSection != null) {
-                Header(
-                    title = selectedSection.name,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                )
-                SectionTabs(
+            }
+        } else if (selectedSection != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                SectionRail(
                     sections = sections,
                     selectedId = selectedSection.id,
+                    openCounts = openCounts,
                     onSelect = { selectedId = it },
                     onNew = { dialog = HomeDialog.NewSection },
                     onReorder = { newOrder ->
                         scope.launch { repo.reorderSections(newOrder) }
                     },
                 )
-                ItemsList(
-                    sectionId = selectedSection.id,
-                    accent = accent,
-                    repo = repo,
-                    scope = scope,
-                    modifier = Modifier.weight(1f),
-                    onItemDeleted = { deletedItem ->
-                        scope.launch {
-                            repo.deleteItem(deletedItem)
-                            // Dismiss any previous undo snackbar so the latest
-                            // delete always gets the full undo window.
-                            snackbarHostState.currentSnackbarData?.dismiss()
-                            val label = deletedItem.text.take(30).ifBlank { "Item" }
-                            val result = snackbarHostState.showSnackbar(
-                                message = "Deleted \"$label\"",
-                                actionLabel = "Undo",
-                                duration = SnackbarDuration.Short,
-                                withDismissAction = false,
-                            )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                repo.restoreItem(deletedItem)
+                Column(modifier = Modifier.weight(1f)) {
+                    ChannelHeader(
+                        section = selectedSection,
+                        openCount = openCounts[selectedSection.id] ?: 0,
+                        accent = accent,
+                        onScan = { onScan(selectedSection.id) },
+                        onClearChecked = { dialog = HomeDialog.ClearChecked },
+                        onMoveDoneToBottom = {
+                            scope.launch { repo.moveDoneToBottom(selectedSection.id) }
+                        },
+                        onToggleInbox = {
+                            scope.launch {
+                                repo.setSectionRemoteKind(
+                                    section = selectedSection,
+                                    remoteKind = if (selectedSection.isInbox) {
+                                        null
+                                    } else {
+                                        Section.REMOTE_KIND_INBOX
+                                    },
+                                )
                             }
-                        }
-                    },
-                )
-                BottomToolbar(
-                    isInbox = selectedSection.isInbox,
-                    onScan = { onScan(selectedSection.id) },
-                    onClearChecked = { dialog = HomeDialog.ClearChecked },
-                    onMoveDoneToBottom = {
-                        scope.launch { repo.moveDoneToBottom(selectedSection.id) }
-                    },
-                    onToggleInbox = {
-                        scope.launch {
-                            repo.setSectionRemoteKind(
-                                section = selectedSection,
-                                remoteKind = if (selectedSection.isInbox) {
-                                    null
-                                } else {
-                                    Section.REMOTE_KIND_INBOX
-                                },
-                            )
-                        }
-                    },
-                    onRename = { dialog = HomeDialog.RenameSection },
-                    onRecolor = { dialog = HomeDialog.RecolorSection },
-                    onDelete = { dialog = HomeDialog.DeleteSection },
-                )
-                HorizontalDivider()
-                Composer(
-                    sectionName = selectedSection.name,
-                    accent = accent,
-                    onSubmit = { text ->
-                        scope.launch { repo.addItem(selectedSection.id, text) }
-                    },
-                )
+                        },
+                        onRename = { dialog = HomeDialog.RenameSection },
+                        onRecolor = { dialog = HomeDialog.RecolorSection },
+                        onDelete = { dialog = HomeDialog.DeleteSection },
+                    )
+                    HorizontalDivider()
+                    ItemsList(
+                        sectionId = selectedSection.id,
+                        accent = accent,
+                        repo = repo,
+                        scope = scope,
+                        modifier = Modifier.weight(1f),
+                        canMove = sections.size > 1,
+                        onMoveRequested = { dialog = HomeDialog.MoveItem(it) },
+                        onItemDeleted = { deletedItem ->
+                            scope.launch {
+                                repo.deleteItem(deletedItem)
+                                // Dismiss any previous undo snackbar so the latest
+                                // delete always gets the full undo window.
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                                val label = deletedItem.text.take(30).ifBlank { "Item" }
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Deleted \"$label\"",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short,
+                                    withDismissAction = false,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    repo.restoreItem(deletedItem)
+                                }
+                            }
+                        },
+                    )
+                    Composer(
+                        section = selectedSection,
+                        accent = accent,
+                        onScan = { onScan(selectedSection.id) },
+                        onSubmit = { text ->
+                            scope.launch { repo.addItem(selectedSection.id, text) }
+                        },
+                    )
+                }
             }
         }
     }
@@ -245,17 +279,22 @@ fun HomeScreen(
     HomeDialogs(
         dialog = dialog,
         selectedSection = selectedSection,
+        sections = sections,
         onDismiss = { dialog = null },
-        onCreateSection = { name ->
+        onMoveItem = { item, targetId ->
+            scope.launch { repo.moveItemToSection(item, targetId) }
+            dialog = null
+        },
+        onCreateSection = { name, emoji ->
             scope.launch {
                 val color = randomSectionColor()
-                val newId = repo.addSection(name, color)
+                val newId = repo.addSection(name, color, emoji)
                 selectedId = newId
             }
             dialog = null
         },
-        onRenameSection = { newName ->
-            selectedSection?.let { scope.launch { repo.renameSection(it, newName) } }
+        onRenameSection = { newName, emoji ->
+            selectedSection?.let { scope.launch { repo.renameSection(it, newName, emoji) } }
             dialog = null
         },
         onRecolorSection = { newColor ->
@@ -273,23 +312,139 @@ fun HomeScreen(
     )
 }
 
+/**
+ * Section title plus the per-section menu the bottom toolbar used to hold. Names no longer fit
+ * on the rail tiles, so this line is where the active section is spelled out.
+ */
 @Composable
-private fun Header(title: String, modifier: Modifier = Modifier) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.headlineLarge.copy(
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
-        ),
-        modifier = modifier,
-    )
+private fun ChannelHeader(
+    section: Section,
+    openCount: Int,
+    accent: Color,
+    onScan: () -> Unit,
+    onClearChecked: () -> Unit,
+    onMoveDoneToBottom: () -> Unit,
+    onToggleInbox: () -> Unit,
+    onRename: () -> Unit,
+    onRecolor: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Only a real emoji earns a place here. The letter fallback is derived from
+                // the name, so drawing it alongside reads as "T ToDos".
+                if (section.hasEmoji) {
+                    Text(
+                        text = section.glyph,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                }
+                Text(
+                    text = section.name,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 3.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(accent),
+                )
+                Text(
+                    text = "$openCount open",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (section.isInbox) {
+                    Text(
+                        text = "· sends to Claude",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        IconButton(onClick = onScan) {
+            Icon(
+                painter = painterResource(R.drawable.ic_photo_camera),
+                contentDescription = "Scan recipe",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Section actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Move done to bottom") },
+                    onClick = { menuOpen = false; onMoveDoneToBottom() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Clear checked") },
+                    onClick = { menuOpen = false; onClearChecked() },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (section.isInbox) {
+                                "Stop sending to Claude"
+                            } else {
+                                "Send new notes to Claude"
+                            },
+                        )
+                    },
+                    onClick = { menuOpen = false; onToggleInbox() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Rename & icon") },
+                    onClick = { menuOpen = false; onRename() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Change color") },
+                    onClick = { menuOpen = false; onRecolor() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete section") },
+                    onClick = { menuOpen = false; onDelete() },
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun SectionTabs(
+private fun SectionRail(
     sections: List<Section>,
     selectedId: Long,
+    openCounts: Map<Long, Int>,
     onSelect: (Long) -> Unit,
     onNew: () -> Unit,
     onReorder: (List<Long>) -> Unit,
@@ -310,99 +465,179 @@ private fun SectionTabs(
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        // Only swap real sections — never let drag target the trailing "new" pill slot.
+        // Only swap real sections — never let drag target the trailing "new" tile slot.
         if (from.index < ordered.size && to.index < ordered.size) {
             ordered.add(to.index, ordered.removeAt(from.index))
         }
     }
 
-    LazyRow(
+    LazyColumn(
         state = lazyListState,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .width(RAIL_WIDTH)
+            .fillMaxHeight()
+            .background(RAIL_BACKGROUND),
+        contentPadding = PaddingValues(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         items(ordered, key = { it.id }) { section ->
             ReorderableItem(reorderState, key = section.id) { isDragging ->
-                SectionPill(
+                RailTile(
                     section = section,
                     isActive = section.id == selectedId,
-                    isDragging = isDragging,
+                    openCount = openCounts[section.id] ?: 0,
                     dragHandleModifier = Modifier.longPressDraggableHandle(
-                        onDragStopped = {
-                            onReorder(ordered.map { it.id })
-                        },
+                        onDragStopped = { onReorder(ordered.map { it.id }) },
                     ),
                     onClick = { onSelect(section.id) },
                 )
             }
         }
-        item("new") { NewSectionPill(onClick = onNew) }
+        item("new") { NewSectionTile(onClick = onNew) }
     }
 }
 
+/**
+ * One rail entry: glyph tile, open-count badge, name, and the bar marking the active section.
+ *
+ * Emoji and letter tiles are styled differently on purpose. An emoji is already a multicoloured
+ * glyph, so it sits on a wash of the section colour; a letter has no colour of its own and takes
+ * white-on-solid to stay legible. The widget's `renderTile` makes the same distinction, so a
+ * section looks the same in both places.
+ */
 @Composable
-private fun SectionPill(
+private fun RailTile(
     section: Section,
     isActive: Boolean,
-    isDragging: Boolean = false,
+    openCount: Int,
     dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val accent = Color(section.color)
-    val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-    val bg = if (isActive) accent else Color.Transparent
-    val fg = if (isActive) Color.White else MaterialTheme.colorScheme.onSurface
-    val border = if (isActive) accent else outline
-    val dotColor = if (isActive) Color.White else accent
 
-    Row(
+    Box(
         modifier = dragHandleModifier
-            .clip(CircleShape)
+            .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(bg, CircleShape)
-            .border(1.5.dp, border, CircleShape)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(dotColor),
-        )
-        Text(
-            text = section.name,
-            color = fg,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-        )
+        // Active indicator, flush to the rail's leading edge like Slack's.
+        if (isActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(top = 2.dp, bottom = 14.dp)
+                    .width(3.dp)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
+                    .background(Color.White),
+            )
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(contentAlignment = Alignment.TopEnd) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(if (isActive) 15.dp else 13.dp))
+                        .background(
+                            if (section.hasEmoji) accent.copy(alpha = 0.22f) else accent,
+                        )
+                        .border(
+                            width = if (isActive) 1.5.dp else 0.dp,
+                            color = if (isActive) Color.White.copy(alpha = 0.9f) else Color.Transparent,
+                            shape = RoundedCornerShape(if (isActive) 15.dp else 13.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = section.glyph,
+                        style = if (section.hasEmoji) {
+                            MaterialTheme.typography.titleLarge
+                        } else {
+                            MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        },
+                        color = if (section.hasEmoji) Color.Unspecified else Color.White,
+                    )
+                }
+
+                if (openCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 4.dp, y = (-4).dp)
+                            .heightIn(min = 18.dp)
+                            .widthIn(min = 18.dp)
+                            .clip(CircleShape)
+                            .background(RAIL_BACKGROUND)
+                            .padding(2.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 14.dp)
+                                .widthIn(min = 14.dp)
+                                .clip(CircleShape)
+                                .background(BADGE_COLOR)
+                                .padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (openCount > 99) "99+" else "$openCount",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 9.sp,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = section.name,
+                color = if (isActive) Color.White else Color.White.copy(alpha = 0.5f),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .width(RAIL_WIDTH - 8.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
 @Composable
-private fun NewSectionPill(onClick: () -> Unit) {
-    val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    Row(
+private fun NewSectionTile(onClick: () -> Unit) {
+    Box(
         modifier = Modifier
-            .clip(CircleShape)
+            .fillMaxWidth()
             .clickable(onClick = onClick)
-            .border(1.5.dp, outline, CircleShape)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Add,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
-        )
-        Text(
-            text = "new",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-        )
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(Color.White.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "New section",
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }
 
@@ -413,6 +648,8 @@ private fun ItemsList(
     repo: com.jt.naicenotes.data.repo.NotesRepository,
     scope: kotlinx.coroutines.CoroutineScope,
     onItemDeleted: (Item) -> Unit,
+    canMove: Boolean,
+    onMoveRequested: (Item) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dbItems by remember(sectionId) { repo.observeItems(sectionId) }
@@ -440,46 +677,32 @@ private fun ItemsList(
         orderedItems.add(to.index, orderedItems.removeAt(from.index))
     }
 
-    val openCount = orderedItems.count { !it.isChecked }
-    val doneCount = orderedItems.size - openCount
-
-    Column(modifier = modifier) {
-        Text(
-            text = buildString {
-                append("$openCount open")
-                if (doneCount > 0) append(" · $doneCount done")
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-        )
-
-        LazyColumn(
-            state = lazyListState,
-            // weight, not fillMaxSize: the count line above is a sibling, so filling
-            // the parent's full height would overflow the column by that much.
-            modifier = Modifier.weight(1f),
-        ) {
-            items(orderedItems, key = { it.id }) { item ->
-                ReorderableItem(reorderableState, key = item.id) { isDragging ->
-                    ItemRow(
-                        item = item,
-                        accent = accent,
-                        isDragging = isDragging,
-                        dragHandleModifier = Modifier.longPressDraggableHandle(
-                            onDragStopped = {
-                                scope.launch {
-                                    repo.reorderItems(orderedItems.map { it.id })
-                                }
-                            },
-                        ),
-                        onToggle = { scope.launch { repo.toggleItem(item) } },
-                        onDelete = { onItemDeleted(item) },
-                        onSaveText = { newText ->
-                            scope.launch { repo.updateItemText(item, newText) }
+    // The open/done counts moved to the channel header, so the list is now the whole surface.
+    LazyColumn(
+        state = lazyListState,
+        modifier = modifier,
+    ) {
+        items(orderedItems, key = { it.id }) { item ->
+            ReorderableItem(reorderableState, key = item.id) { isDragging ->
+                ItemRow(
+                    item = item,
+                    accent = accent,
+                    isDragging = isDragging,
+                    canMove = canMove,
+                    dragHandleModifier = Modifier.longPressDraggableHandle(
+                        onDragStopped = {
+                            scope.launch {
+                                repo.reorderItems(orderedItems.map { it.id })
+                            }
                         },
-                    )
-                }
+                    ),
+                    onToggle = { scope.launch { repo.toggleItem(item) } },
+                    onDelete = { onItemDeleted(item) },
+                    onMove = { onMoveRequested(item) },
+                    onSaveText = { newText ->
+                        scope.launch { repo.updateItemText(item, newText) }
+                    },
+                )
             }
         }
     }
@@ -491,9 +714,11 @@ private fun ItemRow(
     item: Item,
     accent: Color,
     isDragging: Boolean,
+    canMove: Boolean,
     dragHandleModifier: Modifier,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onMove: () -> Unit,
     onSaveText: (String) -> Unit,
 ) {
     // Material settles a swipe on fling velocity as well as distance, so a quick
@@ -527,6 +752,7 @@ private fun ItemRow(
         else MaterialTheme.colorScheme.surface
 
     var editing by rememberSaveable(item.id) { mutableStateOf(false) }
+    var actionsOpen by remember(item.id) { mutableStateOf(false) }
     var draft by remember(item.id, item.text) { mutableStateOf(item.text) }
     var hasBeenFocused by remember(item.id, editing) { mutableStateOf(false) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -667,6 +893,62 @@ private fun ItemRow(
                     modifier = Modifier.size(14.dp),
                 )
             }
+
+            // Every other gesture on this row is already spoken for — tap the circle toggles,
+            // tap the text edits, long-press drags, swipe deletes — so the actions hang off an
+            // explicit button rather than the mockup's press-reveal bar. Same four actions,
+            // and unlike the gestures they replace, this one is visible.
+            if (!editing) {
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .clickable { actionsOpen = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Item actions",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (item.isChecked) "Mark as open" else "Mark as done") },
+                            onClick = { actionsOpen = false; onToggle() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Edit text") },
+                            onClick = {
+                                actionsOpen = false
+                                draft = item.text
+                                editing = true
+                            },
+                        )
+                        if (item.isLink) {
+                            DropdownMenuItem(
+                                text = { Text("Open link") },
+                                onClick = { actionsOpen = false; openLink(context, item.linkUrl) },
+                            )
+                        }
+                        if (canMove) {
+                            DropdownMenuItem(
+                                text = { Text("Move to section…") },
+                                onClick = { actionsOpen = false; onMove() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = { actionsOpen = false; onDelete() },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -764,85 +1046,23 @@ private fun openLink(context: android.content.Context, url: String?) {
         .onFailure { Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show() }
 }
 
-@Composable
-private fun BottomToolbar(
-    isInbox: Boolean,
-    onScan: () -> Unit,
-    onClearChecked: () -> Unit,
-    onMoveDoneToBottom: () -> Unit,
-    onToggleInbox: () -> Unit,
-    onRename: () -> Unit,
-    onRecolor: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        FilledTonalIconButton(
-            onClick = onScan,
-            shape = CircleShape,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_photo_camera),
-                contentDescription = "Scan recipe",
-            )
-        }
-        Box {
-            FilledTonalIconButton(
-                onClick = { open = true },
-                shape = CircleShape,
-            ) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Section actions")
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Move done to bottom") },
-                    onClick = { open = false; onMoveDoneToBottom() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Clear checked") },
-                    onClick = { open = false; onClearChecked() },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (isInbox) "Stop sending to Claude" else "Send new notes to Claude",
-                        )
-                    },
-                    onClick = { open = false; onToggleInbox() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Rename section") },
-                    onClick = { open = false; onRename() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Change color") },
-                    onClick = { open = false; onRecolor() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete section") },
-                    onClick = { open = false; onDelete() },
-                )
-            }
-        }
-    }
-}
-
+/**
+ * Boxed composer with its own tool rail — the redesign's one structural claim about adding.
+ * The bottom toolbar is gone: scan lives here and in the header, per-section actions moved to
+ * the header menu, and per-item actions moved onto the rows.
+ *
+ * Only actions that exist are shown. The mockup's link and voice buttons had nothing behind
+ * them, so they aren't drawn.
+ */
 @Composable
 private fun Composer(
-    sectionName: String,
+    section: Section,
     accent: Color,
+    onScan: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    val focused = text.isNotEmpty()
 
     fun submit() {
         val trimmed = text.trim()
@@ -852,26 +1072,33 @@ private fun Composer(
         }
     }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.5.dp,
+                color = if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(14.dp),
+            ),
     ) {
-        // BasicTextField in a pill rather than Material's TextField: the latter
-        // forces a 56dp min height, which eats list rows once the keyboard is up.
+        // BasicTextField rather than Material's TextField: the latter forces a 56dp min
+        // height, which eats list rows once the keyboard is up.
         Box(
             modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 14.dp, top = 11.dp, bottom = 3.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             if (text.isEmpty()) {
                 Text(
-                    text = "Add to $sectionName",
+                    text = if (section.hasEmoji) {
+                        "Add to ${section.glyph} ${section.name}"
+                    } else {
+                        "Add to ${section.name}"
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -889,15 +1116,54 @@ private fun Composer(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        IconButton(
-            onClick = { submit() },
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = accent,
-                contentColor = Color.White,
-            ),
-            modifier = Modifier.size(40.dp),
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Add item")
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .clickable(onClick = onScan),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_photo_camera),
+                    contentDescription = "Scan recipe",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            if (section.isInbox) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "New notes here go to the Claude inbox",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { submit() },
+                enabled = text.isNotBlank(),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = accent,
+                    contentColor = Color.White,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    disabledContentColor = MaterialTheme.colorScheme.outline,
+                ),
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Add item",
+                    modifier = Modifier.size(17.dp),
+                )
+            }
         }
     }
 }
@@ -928,9 +1194,11 @@ private fun EmptyState(onCreate: () -> Unit) {
 private fun HomeDialogs(
     dialog: HomeDialog?,
     selectedSection: Section?,
+    sections: List<Section>,
     onDismiss: () -> Unit,
-    onCreateSection: (String) -> Unit,
-    onRenameSection: (String) -> Unit,
+    onMoveItem: (Item, Long) -> Unit,
+    onCreateSection: (String, String?) -> Unit,
+    onRenameSection: (String, String?) -> Unit,
     onRecolorSection: (Int) -> Unit,
     onDeleteSection: () -> Unit,
     onClearChecked: () -> Unit,
@@ -950,6 +1218,7 @@ private fun HomeDialogs(
                 confirmLabel = "Save",
                 onDismiss = onDismiss,
                 onConfirm = onRenameSection,
+                initialEmoji = it.emoji,
             )
         }
         HomeDialog.RecolorSection -> selectedSection?.let {
@@ -975,7 +1244,84 @@ private fun HomeDialogs(
             onDismiss = onDismiss,
             onConfirm = onClearChecked,
         )
+        is HomeDialog.MoveItem -> MoveToSectionDialog(
+            item = dialog.item,
+            sections = sections.filter { it.id != dialog.item.sectionId },
+            onDismiss = onDismiss,
+            onConfirm = { targetId -> onMoveItem(dialog.item, targetId) },
+        )
         null -> Unit
     }
+}
+
+/**
+ * Section picker for moving an item. Lists every section but the one it's already in, using the
+ * same glyph tiles as the rail so the target is recognised rather than read.
+ */
+@Composable
+private fun MoveToSectionDialog(
+    item: Item,
+    sections: List<Section>,
+    onDismiss: () -> Unit,
+    onConfirm: (Long) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Move to section") },
+        text = {
+            Column {
+                Text(
+                    text = item.displayText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                sections.forEach { section ->
+                    val sectionAccent = Color(section.color)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onConfirm(section.id) }
+                            .padding(vertical = 8.dp, horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(
+                                    if (section.hasEmoji) {
+                                        sectionAccent.copy(alpha = 0.22f)
+                                    } else {
+                                        sectionAccent
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = section.glyph,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                color = if (section.hasEmoji) Color.Unspecified else Color.White,
+                            )
+                        }
+                        Text(
+                            text = section.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 

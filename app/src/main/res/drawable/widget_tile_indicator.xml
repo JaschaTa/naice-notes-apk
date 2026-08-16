@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Active-section underline. RemoteViews can't add a stroke to a drawable at runtime, so the
+  selected state is carried by this separate view's visibility and tint rather than by
+  swapping the tile background.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFF" />
+    <corners android:radius="2dp" />
+</shape>

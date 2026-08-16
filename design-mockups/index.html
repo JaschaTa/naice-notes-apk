@@ -21,13 +21,48 @@
     border: 0; border-radius: 12px;
     background: #2A2A2C;
   }
+  h2 {
+    font-size: 14px; opacity: 0.6; margin-top: 40px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .lede { margin: 8px 0 16px; max-width: 720px; line-height: 1.6; }
+  .grid-tall {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+    gap: 24px;
+  }
+  .grid-tall iframe { height: 1240px; }
+  .hero iframe { height: 2450px; }
 </style>
 </head>
 <body>
 <h1>Naice Notes — design exploration</h1>
-<p>App layouts above. Widget directions further down.</p>
+<p>Redesign round (Slack + Miro) first. Original 2026-05 directions and widget/link mocks below.</p>
 
-<h2 style="font-size:14px; opacity:0.6; margin-top: 24px; letter-spacing:0.08em; text-transform:uppercase;">App</h2>
+<h2 style="margin-top:8px">Redesign — Slack &amp; Miro</h2>
+<p class="lede">
+  Five directions against the shipped "Minimal+" layout. 1&ndash;2 borrow Slack's structure (persistent
+  nav, press-reveal row actions, the composer as a first-class boxed object). 3&ndash;4 borrow Miro's
+  surfaces (floating chrome, objects over a board, contextual toolbars). 5 is the hybrid and the one
+  worth building &mdash; read its caption for what each change costs.
+</p>
+<div class="grid-tall">
+  <iframe src="redesign-01-slack-rail.html" title="Slack Rail" style="height:1520px"></iframe>
+  <iframe src="redesign-02-slack-groups.html" title="Slack Groups"></iframe>
+  <iframe src="redesign-03-miro-canvas.html" title="Miro Canvas"></iframe>
+  <iframe src="redesign-04-miro-float.html" title="Miro Float"></iframe>
+</div>
+<div class="hero" style="margin-top:24px">
+  <iframe src="redesign-05-hybrid.html" title="Hybrid — recommended" style="width:100%"></iframe>
+</div>
+
+<h2>Redesign — widget (matched to Redesign 1)</h2>
+<p class="lede">
+  Three widget sizes carrying the emoji tile, plus a table of what ports from the app direction and
+  what RemoteViews makes impossible.
+</p>
+<iframe src="redesign-widget.html" title="Widget redesign" style="height:1560px"></iframe>
+
+<h2>App — original directions (2026-05)</h2>
 <div class="grid">
   <iframe src="01-minimal.html" title="Minimal Mono"></iframe>
   <iframe src="04-minimal-plus.html" title="Minimal+"></iframe>
@@ -35,13 +70,13 @@
   <iframe src="03-dense.html" title="Dense Notion-style"></iframe>
 </div>
 
-<h2 style="font-size:14px; opacity:0.6; margin-top: 32px; letter-spacing:0.08em; text-transform:uppercase;">Widget</h2>
+<h2>Widget</h2>
 <div style="display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 12px;">
   <iframe src="widget-01-dropdown.html" title="Widget — Dropdown header" style="height: 1100px;"></iframe>
   <iframe src="widget-02-pills.html" title="Widget — Pill tabs" style="height: 1100px;"></iframe>
 </div>
 
-<h2 style="font-size:14px; opacity:0.6; margin-top: 32px; letter-spacing:0.08em; text-transform:uppercase;">Link previews (share target)</h2>
+<h2>Link previews (share target)</h2>
 <p style="margin-top:8px;">How a shared URL renders once its Open Graph metadata is fetched. Each mock mixes links into normal one-liners to show how the list reads in context.</p>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px;">
   <iframe src="link-01-compact-card.html" title="Compact card" style="height: 840px;"></iframe>

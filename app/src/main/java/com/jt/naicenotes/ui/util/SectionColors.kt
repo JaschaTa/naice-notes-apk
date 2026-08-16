@@ -17,3 +17,13 @@ val SectionColorPalette: List<Color> = listOf(
 
 /** Colour for a newly created section, stored as ARGB on [com.jt.naicenotes.data.entity.Section]. */
 fun randomSectionColor(): Int = SectionColorPalette.random().toArgb()
+
+/**
+ * Quick-pick emoji offered when naming a section. Deliberately a short, opinionated list rather
+ * than a full picker: the field accepts anything the system keyboard can type, so this only has
+ * to cover the common cases in one tap.
+ */
+val SectionEmojiPalette: List<String> = listOf(
+    "🛒", "💼", "📥", "📚", "💡", "🏠", "✈️", "🍳",
+    "🎁", "💪", "🎬", "🎵", "🧾", "🔧", "🌱", "❤️",
+)

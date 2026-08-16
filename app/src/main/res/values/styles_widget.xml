@@ -31,4 +31,49 @@
         <item name="android:ellipsize">end</item>
     </style>
 
+    <!--
+      Emoji section tile. Fixed 32dp square regardless of content, which is the whole point:
+      a name pill was wrap_content, so four sections overflowed the un-scrollable header and
+      clipped. Eight of these fit where roughly three names did.
+    -->
+    <style name="WidgetTile">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center_horizontal</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:visibility">gone</item>
+    </style>
+
+    <style name="WidgetTileGlyph">
+        <item name="android:layout_width">32dp</item>
+        <item name="android:layout_height">32dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:background">@drawable/widget_tile_bg</item>
+    </style>
+
+    <style name="WidgetTileIndicator">
+        <item name="android:layout_width">16dp</item>
+        <item name="android:layout_height">3dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:background">@drawable/widget_tile_indicator</item>
+        <item name="android:visibility">invisible</item>
+    </style>
+
+    <style name="WidgetSectionCaption">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:paddingStart">5dp</item>
+        <item name="android:paddingEnd">5dp</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
 </resources>

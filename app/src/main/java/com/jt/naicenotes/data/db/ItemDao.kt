@@ -52,6 +52,28 @@ interface ItemDao {
     )
     suspend fun listUnpushedInRemoteSections(): List<Item>
 
+    /**
+     * Open-item count per section, for the rail badges. Sections with nothing open are simply
+     * absent from the result rather than reported as zero — the caller renders no badge for a
+     * missing key, which is the same thing.
+     */
+    @Query("SELECT sectionId, COUNT(*) AS openCount FROM items WHERE isChecked = 0 GROUP BY sectionId")
+    fun observeOpenCounts(): Flow<List<SectionOpenCount>>
+
+    @Query("UPDATE items SET sectionId = :sectionId, position = :position WHERE id = :id")
+    suspend fun setSection(id: Long, sectionId: Long, position: Int)
+
+    /**
+     * Move an item into another section, landing at the top the way a freshly added item
+     * would. Transactional for the same reason [insertAtTop] is: a half-applied shift leaves
+     * the target section's order scrambled.
+     */
+    @Transaction
+    suspend fun moveToSectionTop(id: Long, targetSectionId: Long) {
+        shiftPositions(targetSectionId, 1)
+        setSection(id, targetSectionId, 0)
+    }
+
     @Query("UPDATE items SET position = :position WHERE id = :id")
     suspend fun setPosition(id: Long, position: Int)
 
@@ -101,3 +123,9 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE sectionId = :sectionId AND isChecked = 1")
     suspend fun deleteCheckedInSection(sectionId: Long)
 }
+
+/** One row of [ItemDao.observeOpenCounts]. */
+data class SectionOpenCount(
+    val sectionId: Long,
+    val openCount: Int,
+)

@@ -52,6 +52,8 @@ Append here whenever a session burns time on a non-obvious platform quirk. Sympt
 
 **Widget renders blank on One UI 8.5 / Android 16 (v1.1).** `notes_widget_info.xml` never declared `android:initialLayout`. Pre-8.5 launchers tolerated its absence, but HoneySpace inflates the initial layout as the first paint — with `initialLayout=#0` it painted nothing, and nothing re-triggered a paint (`updatePeriodMillis=0`, app not running). Fix: `android:initialLayout="@layout/widget_main"`. Diagnose with `adb shell dumpsys appwidget` and look for `initialLayout=#0`.
 
+**A plain `<View>` in a widget layout makes the launcher say "Couldn't add widget".** RemoteViews only inflates a fixed whitelist of classes, and `android.view.View` is not on it — a single one anywhere in the tree fails the *whole* layout, so the symptom is a dead widget rather than a missing element. It bit when the section tiles' active-state underline was added as a `<View>`. Use `ImageView` with a background drawable instead, which is what the old pill dot already did. Nothing catches this at build time: it compiles, lints clean, and only fails when the launcher inflates it.
+
 **Widget-launched activities need `android:taskAffinity=""` (v1.2).** `QuickAddActivity` opened the whole app behind its dialog because it shared `MainActivity`'s default task affinity and got stacked into that task on `FLAG_ACTIVITY_NEW_TASK`.
 
 **SwipeToDismissBox dismisses on velocity, not just distance (v1.3).** Material3 1.4.0's `AnchoredDraggable` settles on fling velocity **or** position, and on the fling path `positionalThreshold` is never consulted — so raising it does nothing for quick flicks, which is the accidental-delete case. Material3 1.4.0 exposes no `velocityThreshold` (verified with `javap` against the material3 AAR). The only working guard is to read `state.requireOffset()` — the actual finger travel at release — inside `confirmValueChange` and veto anything shorter than `SWIPE_DELETE_FRACTION` of the row width. Related: `confirmValueChange` must return `true` for `Settled`, otherwise rows cannot spring back to rest.
@@ -129,7 +131,7 @@ Two traps cost real time here, both of which make a working app look broken:
 
 ## Database migrations
 
-**Currently at schema version 5**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change) and `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`) all registered in `AppDatabase.get()`. The next schema change is 5→6.
+**Currently at schema version 6**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change), `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`) and `MIGRATION_5_6` (`sections.emoji`) all registered in `AppDatabase.get()`. The next schema change is 6→7.
 
 The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above). Take a backup first: `~/naice-notes-backups/` holds one set per migration so far.
 

@@ -6,7 +6,7 @@
     android:background="@drawable/widget_bg"
     android:padding="8dp">
 
-    <!-- Header row: logo + pills + add button -->
+    <!-- Header row: logo + emoji section tiles + add button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -16,9 +16,9 @@
 
         <ImageView
             android:id="@+id/app_logo"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginEnd="8dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="6dp"
             android:src="@drawable/ic_naicenotes_logo"
             android:scaleType="fitCenter"
             android:contentDescription="Open Naice Notes" />
@@ -31,58 +31,67 @@
             android:orientation="horizontal"
             android:gravity="start|center_vertical">
 
-            <LinearLayout android:id="@+id/pill_0" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_0_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_0_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_0" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_0_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_0_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_1" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_1_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_1_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_1" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_1_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_1_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_2" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_2_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_2_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_2" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_2_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_2_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_3" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_3_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_3_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_3" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_3_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_3_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_4" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_4_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_4_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_4" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_4_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_4_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_5" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_5_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_5_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_5" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_5_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_5_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_6" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_6_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_6_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_6" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_6_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_6_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/pill_7" style="@style/WidgetPill">
-                <ImageView android:id="@+id/pill_7_dot" style="@style/WidgetPillDot" />
-                <TextView android:id="@+id/pill_7_text" style="@style/WidgetPillText" />
+            <LinearLayout android:id="@+id/tile_7" style="@style/WidgetTile">
+                <TextView android:id="@+id/tile_7_glyph" style="@style/WidgetTileGlyph" />
+                <ImageView android:id="@+id/tile_7_indicator" style="@style/WidgetTileIndicator" />
             </LinearLayout>
         </LinearLayout>
 
         <ImageView
             android:id="@+id/add_button"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="4dp"
             android:src="@drawable/ic_widget_add"
             android:background="@drawable/widget_add_button_bg"
-            android:padding="10dp"
+            android:padding="9dp"
             android:scaleType="fitCenter"
             android:contentDescription="Add" />
     </LinearLayout>
+
+    <!--
+      Names left the tiles, so this is the only place the active section is spelled out.
+      It doubles as the open-item count, which the renderer already has to hand.
+    -->
+    <TextView
+        android:id="@+id/section_caption"
+        style="@style/WidgetSectionCaption"
+        android:textColor="@color/widget_text_muted" />
 
     <!-- Items list -->
     <ListView
@@ -90,7 +99,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:divider="@null"
         android:dividerHeight="0dp"
         android:scrollbars="none" />

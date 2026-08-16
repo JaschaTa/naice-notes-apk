@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Naice Notes — Redesign 2: Slack Groups</title>
+<style>
+  :root {
+    --bg:        #FFFFFF;
+    --surface:   #F8F8F9;
+    --fg:        #1D1C1D;
+    --fg-muted:  #616061;
+    --fg-faint:  #8D8D8E;
+    --hairline:  #E6E6E8;
+    --shopping:  #4CAF50;
+    --work:      #2196F3;
+    --reading:   #9C27B0;
+    --inbox:     #FF9800;
+    --accent:    var(--shopping);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: #2A2A2C;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone {
+    width: 412px; height: 870px;
+    background: var(--bg); color: var(--fg);
+    border-radius: 44px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; position: relative;
+  }
+
+  .statusbar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 26px 0 28px; font-size: 13px; font-weight: 600;
+  }
+  .statusbar .sig { display: flex; gap: 3px; align-items: flex-end; opacity: 0.75; }
+  .statusbar .sig i { display: block; width: 3px; background: currentColor; border-radius: 1px; }
+
+  /* ---------- workspace header ---------- */
+  .wshead {
+    display: flex; align-items: center; gap: 11px;
+    padding: 2px 18px 12px;
+  }
+  .wsavatar {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg,#4CAF50,#2196F3);
+    display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 15px;
+  }
+  .wstitle { font-size: 19px; font-weight: 800; letter-spacing: -0.015em; flex: 1; }
+  .hicon {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--surface); display: grid; place-items: center; color: var(--fg-muted);
+  }
+  .hicon svg { width: 17px; height: 17px; }
+
+  /* ---------- search ---------- */
+  .search {
+    margin: 0 16px 8px; height: 36px; border-radius: 8px;
+    border: 1px solid var(--hairline); background: var(--surface);
+    display: flex; align-items: center; gap: 8px; padding: 0 11px;
+    color: var(--fg-faint); font-size: 14px;
+  }
+  .search svg { width: 15px; height: 15px; }
+
+  /* ---------- scroll body ---------- */
+  .scroll { flex: 1; overflow-y: auto; padding-bottom: 6px; }
+
+  .ghead {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px 6px;
+    position: sticky; top: 0; background: var(--bg); z-index: 2;
+  }
+  .caret {
+    width: 16px; color: var(--fg-muted); font-size: 10px; flex-shrink: 0;
+    transition: transform .15s;
+  }
+  .caret.closed { transform: rotate(-90deg); }
+  .gname {
+    font-size: 14px; font-weight: 800; letter-spacing: -0.005em;
+  }
+  .gname.muted { font-weight: 600; color: var(--fg-muted); }
+  .gdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .gcount {
+    margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 10px; background: #E01E5A; color: #fff;
+    font-size: 11.5px; font-weight: 700; line-height: 20px; text-align: center;
+  }
+  .gcount.quiet { background: transparent; color: var(--fg-faint); font-weight: 600; }
+  .gadd { color: var(--fg-faint); font-size: 17px; font-weight: 300; padding-left: 4px; }
+
+  /* ---------- rows ---------- */
+  .row {
+    position: relative; display: flex; align-items: flex-start; gap: 11px;
+    padding: 6px 16px 6px 20px; border-radius: 0;
+  }
+  .row.hovered { background: var(--surface); }
+  .check {
+    width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0; margin-top: 1px;
+    border: 1.5px solid #C9C9CB;
+  }
+  .row.done .check {
+    background: var(--accent); border-color: var(--accent);
+    display: grid; place-items: center;
+  }
+  .row.done .check::after {
+    content: ""; width: 9px; height: 5px;
+    border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translate(1px,-1px);
+  }
+  .txt { font-size: 15.5px; line-height: 1.42; font-weight: 500; flex: 1; }
+  .row.done .txt { color: var(--fg-faint); text-decoration: line-through; font-weight: 400; }
+
+  .actions {
+    position: absolute; top: -11px; right: 12px; display: flex; background: #fff;
+    border: 1px solid var(--hairline); border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.10); overflow: hidden;
+  }
+  .actions div {
+    width: 31px; height: 29px; display: grid; place-items: center;
+    color: var(--fg-muted); border-right: 1px solid var(--hairline);
+  }
+  .actions div:last-child { border-right: 0; }
+  .actions svg { width: 15px; height: 15px; }
+
+  .thumb {
+    width: 40px; height: 40px; border-radius: 7px; flex-shrink: 0;
+    background: linear-gradient(135deg,#FFE9C7,#FFD3D3);
+    display: grid; place-items: center; color: #7A6A56;
+    border: 1px solid var(--hairline);
+  }
+  .thumb svg { width: 16px; height: 16px; }
+  .link-title {
+    font-size: 15px; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .link-dom { font-size: 12px; color: var(--fg-muted); margin-top: 2px; }
+
+  .donebar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 16px 4px 20px; color: var(--fg-faint);
+    font-size: 12px; font-weight: 600;
+  }
+  .donebar .line { flex: 1; border-top: 1px solid var(--hairline); }
+
+  .collapsed-peek {
+    padding: 2px 16px 6px 40px; font-size: 13px; color: var(--fg-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { padding: 6px 12px 0; border-top: 1px solid var(--hairline); }
+  .composer {
+    border: 1.5px solid var(--accent); border-radius: 10px; margin-top: 6px;
+    box-shadow: 0 0 0 3px rgba(76,175,80,0.12);
+    overflow: hidden;
+  }
+  .composer .field {
+    padding: 11px 13px 3px; font-size: 15.5px; color: var(--fg);
+    display: flex; align-items: center;
+  }
+  .composer .field .cursor {
+    display: inline-block; width: 1.5px; height: 17px; background: var(--accent);
+    margin-left: 1px;
+  }
+  .composer .bar { display: flex; align-items: center; gap: 2px; padding: 4px 7px 7px; }
+  .tool { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; color: var(--fg-muted); }
+  .tool svg { width: 16px; height: 16px; }
+  .destchip {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 26px; padding: 0 9px; border-radius: 6px;
+    background: rgba(76,175,80,0.12); color: #2E7D32;
+    font-size: 12.5px; font-weight: 700;
+  }
+  .destchip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .bar .grow { flex: 1; }
+  .send { width: 30px; height: 30px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; }
+  .send svg { width: 15px; height: 15px; }
+
+  .home-indicator {
+    position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%);
+    width: 128px; height: 5px; background: #000; opacity: 0.28; border-radius: 3px;
+  }
+  .safe { height: 26px; }
+
+  .caption {
+    color: rgba(255,255,255,0.75); font-size: 12.5px; line-height: 1.6;
+    margin-top: 16px; max-width: 412px; font-family: ui-monospace, monospace;
+  }
+  .caption b { color: #fff; }
+  .caption code { color: #FFD9A0; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar">
+    <span>9:41</span>
+    <span class="sig"><i style="height:5px"></i><i style="height:7px"></i><i style="height:9px"></i><i style="height:11px"></i></span>
+  </div>
+
+  <div class="wshead">
+    <div class="wsavatar">N</div>
+    <div class="wstitle">Naice Notes</div>
+    <div class="hicon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+      </svg>
+    </div>
+    <div class="hicon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+    </svg>
+    Search all notes
+  </div>
+
+  <div class="scroll">
+
+    <!-- ===== expanded group ===== -->
+    <div class="ghead">
+      <div class="caret">▾</div>
+      <div class="gdot" style="background:var(--shopping)"></div>
+      <div class="gname">Shopping</div>
+      <div class="gcount">4</div>
+      <div class="gadd">+</div>
+    </div>
+
+    <div class="row"><div class="check"></div><div class="txt">olive oil</div></div>
+
+    <div class="row hovered">
+      <div class="check"></div><div class="txt">3 ripe tomatoes</div>
+      <div class="actions">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6V4h8v2"/><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/></svg></div>
+      </div>
+    </div>
+
+    <div class="row"><div class="check"></div><div class="txt">fresh basil leaves</div></div>
+
+    <div class="row">
+      <div class="check"></div>
+      <div class="thumb">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+        </svg>
+      </div>
+      <div style="flex:1; min-width:0">
+        <div class="link-title">Mozzarella di Bufala Campana DOP</div>
+        <div class="link-dom">kaufland.de</div>
+      </div>
+    </div>
+
+    <div class="donebar"><span>2 done</span><span class="line"></span></div>
+    <div class="row done"><div class="check"></div><div class="txt">2 cups flour</div></div>
+    <div class="row done"><div class="check"></div><div class="txt">1 tsp salt</div></div>
+
+    <!-- ===== collapsed groups ===== -->
+    <div class="ghead">
+      <div class="caret closed">▾</div>
+      <div class="gdot" style="background:var(--work)"></div>
+      <div class="gname muted">Work</div>
+      <div class="gcount">7</div>
+      <div class="gadd">+</div>
+    </div>
+    <div class="collapsed-peek">prep OKR review · ping Nils about DX metrics · +5</div>
+
+    <div class="ghead">
+      <div class="caret closed">▾</div>
+      <div class="gdot" style="background:var(--inbox)"></div>
+      <div class="gname muted">Inbox</div>
+      <div class="gcount">2</div>
+      <div class="gadd">+</div>
+    </div>
+    <div class="collapsed-peek">sent to Claude · 2 new since yesterday</div>
+
+    <div class="ghead">
+      <div class="caret closed">▾</div>
+      <div class="gdot" style="background:var(--reading)"></div>
+      <div class="gname muted">Reading</div>
+      <div class="gcount quiet">3</div>
+      <div class="gadd">+</div>
+    </div>
+    <div class="collapsed-peek">all caught up</div>
+
+    <div class="ghead">
+      <div class="caret" style="opacity:0"></div>
+      <div class="gname muted" style="font-weight:600">+ New section</div>
+    </div>
+
+  </div>
+
+  <div class="composer-wrap">
+    <div class="composer">
+      <div class="field">3 ripe tomatoes<span class="cursor"></span></div>
+      <div class="bar">
+        <div class="destchip"><span class="dot"></span> Shopping ▾</div>
+        <div class="tool">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+          </svg>
+        </div>
+        <div class="tool">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 19v3"/><path d="M8 22h8"/><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>
+          </svg>
+        </div>
+        <div class="grow"></div>
+        <div class="send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12h14"/><path d="M12 5l7 7-7 7"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="safe"></div>
+  <div class="home-indicator"></div>
+</div>
+
+<div class="caption">
+<b>Redesign 2 · Slack Groups</b><br>
+The pill tab row is deleted. Sections become collapsible groups in one continuous scroll, exactly like
+Slack's channel sidebar — sticky headers, open-count badges, and a one-line peek of what's inside a
+collapsed group. You can see every section's state at once instead of tab-hopping to find out. The
+composer carries a <b>destination chip</b> ("Shopping ▾"), so adding to a different section never
+requires switching context first — this is the real win, and it makes the widget's quick-add and the
+share target land in the same mental model.<br><br>
+<b>Cost:</b> the biggest behaviour change of the five. Per-section drag-reorder still works inside a
+group, but cross-group drag is new work, and the "one big list" fights the current
+<code>observeItems(sectionId)</code> query — it needs a grouped query or N flows combined.
+</div>
+</body>
+</html>

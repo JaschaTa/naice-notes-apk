@@ -11,7 +11,7 @@ import com.jt.naicenotes.data.entity.Section
 
 @Database(
     entities = [Section::class, Item::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -65,6 +65,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 adds the optional section emoji. Nullable, so every existing section keeps
+         * falling back to its first letter and no row needs backfilling.
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sections ADD COLUMN emoji TEXT")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -79,6 +89,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_2_3,
                         MIGRATION_3_4,
                         MIGRATION_4_5,
+                        MIGRATION_5_6,
                     )
                     .build().also { instance = it }
             }

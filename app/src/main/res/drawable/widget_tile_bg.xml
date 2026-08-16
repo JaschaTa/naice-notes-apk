@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Section tile in the widget header. Solid white on purpose: every instance is tinted at
+  render time via setColorStateList(..., "setBackgroundTintList", ...), and SRC_IN over an
+  opaque shape reproduces the tint's own alpha exactly — which is how the section colour
+  shows up at 20% behind an emoji and at full strength behind a letter.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFF" />
+    <!-- 9dp on a 32dp tile keeps it a squircle. Anything past ~12dp reads as a circle and
+         stops matching the app rail, whose 42dp tile uses 13dp for the same ratio. -->
+    <corners android:radius="9dp" />
+</shape>

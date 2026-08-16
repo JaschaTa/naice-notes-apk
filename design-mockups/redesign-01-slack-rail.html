@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Naice Notes — Redesign 1: Slack Rail (emoji sections)</title>
+<style>
+  :root {
+    --rail:      #1A1D21;
+    --rail-hi:   rgba(255,255,255,0.10);
+    --bg:        #FFFFFF;
+    --fg:        #1D1C1D;
+    --fg-muted:  #616061;
+    --fg-faint:  #868686;
+    --hairline:  #E4E5E7;
+    --hover:     #F8F8F9;
+    --accent:    #4CAF50;
+    --work:      #2196F3;
+    --reading:   #9C27B0;
+    --inbox:     #FF9800;
+    --ideas:     #009688;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: #2A2A2C;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone {
+    width: 412px; height: 870px;
+    background: var(--bg); color: var(--fg);
+    border-radius: 44px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; position: relative;
+  }
+
+  /* ---------- left rail (Slack workspace rail) ---------- */
+  .rail {
+    width: 70px; flex-shrink: 0;
+    background: var(--rail);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 50px 0 12px;
+  }
+  .sec { position: relative; width: 100%; padding: 4px 0 6px; text-align: center; }
+  .sec .tile {
+    width: 42px; height: 42px; border-radius: 13px;
+    display: grid; place-items: center; margin: 0 auto;
+    font-size: 21px; line-height: 1;
+    /* tinted-on-dark: section colour at low alpha, emoji stays legible */
+    border: 1.5px solid transparent;
+  }
+  .sec .tile.letter {
+    font-size: 16px; font-weight: 800; color: #fff;
+  }
+  .sec.active .tile { border-color: rgba(255,255,255,0.9); border-radius: 15px; }
+  .sec.active::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 14px;
+    width: 3px; border-radius: 0 3px 3px 0; background: #fff;
+  }
+  .sec .lbl {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.01em;
+    color: rgba(255,255,255,0.5); margin-top: 4px;
+  }
+  .sec.active .lbl { color: #fff; }
+  .badge {
+    position: absolute; top: 0; right: 11px;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px; background: #E01E5A; color: #fff;
+    font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+    border: 2px solid var(--rail);
+  }
+  .rail-add {
+    width: 42px; height: 42px; border-radius: 13px; margin-top: 6px;
+    background: var(--rail-hi); color: rgba(255,255,255,0.65);
+    display: grid; place-items: center; font-size: 23px; font-weight: 300;
+  }
+  .rail-spacer { flex: 1; }
+  .rail-foot {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--rail-hi); display: grid; place-items: center;
+    color: rgba(255,255,255,0.65);
+  }
+  .rail-foot svg { width: 17px; height: 17px; }
+
+  /* ---------- content ---------- */
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .statusbar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px 0 16px; font-size: 13px; font-weight: 600;
+  }
+  .statusbar .sig { display: flex; gap: 3px; align-items: flex-end; opacity: 0.75; }
+  .statusbar .sig i { display: block; width: 3px; background: currentColor; border-radius: 1px; }
+
+  .chan-head { padding: 4px 14px 10px 16px; border-bottom: 1px solid var(--hairline); }
+  .chan-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 21px; font-weight: 800; letter-spacing: -0.018em;
+  }
+  .chan-title .em { font-size: 19px; }
+  .chan-title .caret { color: var(--fg-muted); font-size: 11px; }
+  .chan-meta {
+    display: flex; align-items: center; gap: 9px; margin-top: 5px;
+    font-size: 12.5px; color: var(--fg-muted);
+  }
+  .chan-meta .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--hairline); border-radius: 6px;
+    padding: 2px 7px; font-weight: 600;
+  }
+  .chan-meta .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* ---------- list ---------- */
+  .items { flex: 1; overflow-y: auto; padding: 6px 0 4px; }
+  .row {
+    position: relative; display: flex; align-items: flex-start; gap: 11px;
+    padding: 7px 14px 7px 16px; border-left: 3px solid transparent;
+  }
+  .row.hovered { background: var(--hover); border-left-color: var(--accent); }
+  .check {
+    width: 21px; height: 21px; border-radius: 6px; flex-shrink: 0;
+    border: 1.5px solid #C9C9CB; margin-top: 1px;
+  }
+  .row.done .check {
+    background: var(--accent); border-color: var(--accent);
+    display: grid; place-items: center;
+  }
+  .row.done .check::after {
+    content: ""; width: 9px; height: 5px;
+    border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translate(1px,-1px);
+  }
+  .txt { font-size: 15.5px; line-height: 1.42; font-weight: 500; flex: 1; }
+  .row.done .txt { color: var(--fg-faint); text-decoration: line-through; font-weight: 400; }
+
+  .actions {
+    position: absolute; top: -12px; right: 12px; display: flex; background: #fff;
+    border: 1px solid var(--hairline); border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.10); overflow: hidden;
+  }
+  .actions div {
+    width: 32px; height: 30px; display: grid; place-items: center;
+    color: var(--fg-muted); border-right: 1px solid var(--hairline);
+  }
+  .actions div:last-child { border-right: 0; }
+  .actions svg { width: 15px; height: 15px; }
+
+  .thumb {
+    width: 42px; height: 42px; border-radius: 7px; flex-shrink: 0;
+    background: linear-gradient(135deg,#FFE9C7,#FFC7D3);
+    display: grid; place-items: center; color: #7A6A56;
+    border: 1px solid var(--hairline);
+  }
+  .thumb svg { width: 17px; height: 17px; }
+  .link-title {
+    font-size: 15px; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .link-dom { font-size: 12px; color: var(--fg-muted); margin-top: 2px; }
+
+  .divider {
+    display: flex; align-items: center; margin: 12px 14px 6px 16px;
+    border-top: 1px solid var(--hairline); position: relative;
+  }
+  .divider span {
+    position: absolute; right: 0; top: -9px; background: #fff;
+    padding-left: 8px; font-size: 11.5px; font-weight: 800;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint);
+  }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { padding: 8px 10px 0 12px; }
+  .composer {
+    border: 1.5px solid #B9B9BC; border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04); overflow: hidden;
+  }
+  .composer .field { padding: 11px 13px 4px; font-size: 15.5px; color: var(--fg-faint); }
+  .composer .bar { display: flex; align-items: center; gap: 2px; padding: 5px 7px 7px; }
+  .tool { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; color: var(--fg-muted); }
+  .tool svg { width: 16px; height: 16px; }
+  .tool.on { background: #EDEDED; color: var(--fg); }
+  .bar .sep { width: 1px; height: 18px; background: var(--hairline); margin: 0 4px; }
+  .bar .grow { flex: 1; }
+  .send { width: 30px; height: 30px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; }
+  .send svg { width: 15px; height: 15px; }
+
+  .home-indicator {
+    position: absolute; bottom: 9px; left: calc(50% + 35px);
+    transform: translateX(-50%); width: 128px; height: 5px;
+    background: #000; opacity: 0.28; border-radius: 3px;
+  }
+  .safe { height: 26px; }
+
+  /* ---------- treatments panel ---------- */
+  .panel {
+    width: 412px; margin-top: 24px; border-radius: 16px;
+    background: #212124; padding: 18px 18px 20px; color: #fff;
+  }
+  .panel h3 {
+    margin: 0 0 3px; font-size: 13px; letter-spacing: 0.07em;
+    text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 700;
+  }
+  .panel p.small {
+    margin: 0 0 16px; font-size: 12px; line-height: 1.55;
+    color: rgba(255,255,255,0.55); font-family: ui-monospace, monospace;
+  }
+  .treatments { display: flex; gap: 12px; }
+  .tr { flex: 1; }
+  .tr .mini {
+    background: var(--rail); border-radius: 12px; padding: 12px 0;
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+  }
+  .tr .t {
+    width: 40px; height: 40px; border-radius: 12px;
+    display: grid; place-items: center; font-size: 20px; line-height: 1;
+    position: relative;
+  }
+  .tr .t.sel { box-shadow: 0 0 0 1.5px rgba(255,255,255,0.9); }
+  .tr .cap {
+    margin-top: 9px; font-size: 11px; line-height: 1.45; text-align: center;
+    color: rgba(255,255,255,0.7); font-family: ui-monospace, monospace;
+  }
+  .tr .cap b { color: #FFD02F; display: block; margin-bottom: 3px; font-size: 11.5px; }
+  .tr.pick .mini { box-shadow: 0 0 0 2px #FFD02F; }
+  .dotbadge {
+    position: absolute; bottom: -1px; right: -1px;
+    width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--rail);
+  }
+
+  .caption {
+    color: rgba(255,255,255,0.75); font-size: 12.5px; line-height: 1.6;
+    margin-top: 18px; max-width: 412px; font-family: ui-monospace, monospace;
+  }
+  .caption b { color: #fff; }
+  .caption code { color: #FFD9A0; }
+  .caption .warn { color: #FFB4A0; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- ============ RAIL ============ -->
+  <div class="rail">
+    <div class="sec active">
+      <div class="tile" style="background:rgba(76,175,80,0.22)">🛒</div>
+      <div class="lbl">Shopping</div>
+      <div class="badge">4</div>
+    </div>
+
+    <div class="sec">
+      <div class="tile" style="background:rgba(33,150,243,0.22)">💼</div>
+      <div class="lbl">Work</div>
+      <div class="badge">7</div>
+    </div>
+
+    <div class="sec">
+      <div class="tile" style="background:rgba(255,152,0,0.22)">📥</div>
+      <div class="lbl">Inbox</div>
+      <div class="badge">2</div>
+    </div>
+
+    <div class="sec">
+      <div class="tile" style="background:rgba(156,39,176,0.22)">📚</div>
+      <div class="lbl">Reading</div>
+    </div>
+
+    <!-- no emoji set → falls back to the initial on the section colour -->
+    <div class="sec">
+      <div class="tile letter" style="background:var(--ideas)">I</div>
+      <div class="lbl">Ideas</div>
+    </div>
+
+    <div class="rail-add">+</div>
+
+    <div class="rail-spacer"></div>
+    <div class="rail-foot">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ============ CONTENT ============ -->
+  <div class="content">
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="sig"><i style="height:5px"></i><i style="height:7px"></i><i style="height:9px"></i><i style="height:11px"></i></span>
+    </div>
+
+    <div class="chan-head">
+      <div class="chan-title"><span class="em">🛒</span> Shopping <span class="caret">▾</span></div>
+      <div class="chan-meta">
+        <span class="chip"><span class="dot"></span> 4 open</span>
+        <span>2 done</span><span>·</span><span>edited 2m ago</span>
+      </div>
+    </div>
+
+    <div class="items">
+      <div class="row">
+        <div class="check"></div><div class="txt">olive oil</div>
+      </div>
+
+      <!-- pressed state: check / edit / move-to-section / delete -->
+      <div class="row hovered">
+        <div class="check"></div><div class="txt">3 ripe tomatoes</div>
+        <div class="actions">
+          <div title="Toggle checked">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <div title="Edit text">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </div>
+          <div title="Move to another section">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="8" height="7" rx="2"/><rect x="13" y="13" width="8" height="7" rx="2"/>
+              <path d="M7 14v3h4"/><path d="M17 10V7h-4"/>
+            </svg>
+          </div>
+          <div title="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="row"><div class="check"></div><div class="txt">fresh basil leaves</div></div>
+
+      <div class="row">
+        <div class="check"></div>
+        <div class="thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+          </svg>
+        </div>
+        <div style="flex:1; min-width:0">
+          <div class="link-title">Mozzarella di Bufala Campana DOP, 250g</div>
+          <div class="link-dom">kaufland.de</div>
+        </div>
+      </div>
+
+      <div class="row"><div class="check"></div><div class="txt">parmesan, the good one</div></div>
+
+      <div class="divider"><span>2 done</span></div>
+
+      <div class="row done"><div class="check"></div><div class="txt">2 cups flour</div></div>
+      <div class="row done"><div class="check"></div><div class="txt">1 tsp salt</div></div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="field">Add to 🛒 Shopping</div>
+        <div class="bar">
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+            </svg>
+          </div>
+          <div class="tool on">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>
+            </svg>
+          </div>
+          <div class="sep"></div>
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 19v3"/><path d="M8 22h8"/><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>
+            </svg>
+          </div>
+          <div class="grow"></div>
+          <div class="send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12h14"/><path d="M12 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="safe"></div>
+  </div>
+
+  <div class="home-indicator"></div>
+</div>
+
+<!-- ============ TILE TREATMENTS ============ -->
+<div class="panel">
+  <h3>Emoji tile — three treatments</h3>
+  <p class="small">
+    The rail above uses <b>B</b>. Pick one; each keeps <code>Section.color</code> meaningful in a
+    different way.
+  </p>
+  <div class="treatments">
+    <div class="tr">
+      <div class="mini">
+        <div class="t sel" style="background:#4CAF50">🛒</div>
+        <div class="t" style="background:#2196F3">💼</div>
+        <div class="t" style="background:#9C27B0">📚</div>
+      </div>
+      <div class="cap"><b>A · solid</b>Loudest, but emoji legibility swings with the colour — 🛒 on green is muddy.</div>
+    </div>
+    <div class="tr pick">
+      <div class="mini">
+        <div class="t sel" style="background:rgba(76,175,80,0.22)">🛒</div>
+        <div class="t" style="background:rgba(33,150,243,0.22)">💼</div>
+        <div class="t" style="background:rgba(156,39,176,0.22)">📚</div>
+      </div>
+      <div class="cap"><b>B · tinted</b>Colour at 22% on the dark rail. Emoji always readable, colour still identifies. Closest to Slack.</div>
+    </div>
+    <div class="tr">
+      <div class="mini">
+        <div class="t sel" style="background:rgba(255,255,255,0.10)">🛒<span class="dotbadge" style="background:#4CAF50"></span></div>
+        <div class="t" style="background:rgba(255,255,255,0.10)">💼<span class="dotbadge" style="background:#2196F3"></span></div>
+        <div class="t" style="background:rgba(255,255,255,0.10)">📚<span class="dotbadge" style="background:#9C27B0"></span></div>
+      </div>
+      <div class="cap"><b>C · neutral + dot</b>Emoji does all the work, colour demoted to a badge. Cleanest, weakest colour signal.</div>
+    </div>
+  </div>
+</div>
+
+<div class="caption">
+<b>Redesign 1 · Slack Rail — emoji sections</b><br>
+Sections are a permanent 70px rail: every one visible, one tap away, no horizontal scroll, open counts
+as red badges. Emoji replaces the letter tile; <b>Ideas</b> is shown with no emoji set, falling back to
+its initial on the solid section colour. The header and composer placeholder both echo the emoji, so a
+section reads the same everywhere.<br><br>
+<b class="warn">Cost of the emoji:</b> <code>Section</code> had no emoji field, so this was a schema
+<b>5 → 6</b> migration — one nullable <code>emoji TEXT</code> column, no backfill needed, plus an emoji
+picker in <code>SectionNameDialog</code> and the letter fallback when null. Per the repo's own rule, back
+up before running it. The widget's <code>ClassicWidgetRenderer</code> is RemoteViews, so it can show the
+emoji in a <code>TextView</code> but needs its own pass.<br><br>
+<b>Row action bar:</b> check / edit / <b>move-to-section</b> / delete. The first three replace hidden
+gestures you already have (tap circle, tap text — long-press on link rows — and swipe past 45%).
+<b>Move-to-section is new functionality</b>: <code>Item.sectionId</code> is a plain column, so it's a
+<code>setSection()</code> DAO method plus a position shift, no migration. It replaced the <code>⋯</code>
+from the first draft, which had nothing behind it.<br><br>
+<b>Layout cost:</b> 70px of 412 gone permanently; the list runs at 342px wide.
+</div>
+</body>
+</html>

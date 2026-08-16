@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViews.RemoteCollectionItems
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import com.jt.naicenotes.MainActivity
 import com.jt.naicenotes.NaiceNotesApp
 import com.jt.naicenotes.R
@@ -28,20 +29,28 @@ import kotlinx.coroutines.flow.first
  */
 object ClassicWidgetRenderer {
 
-    /** Up to this many sections can be shown as pills in the widget header. */
-    private const val MAX_PILLS = 8
+    /**
+     * Up to this many sections can be shown as tiles in the widget header. Unlike the name
+     * pills these replaced, the number is real: a tile is a fixed 32dp square, so eight of
+     * them fit the un-scrollable header where roughly three names did.
+     */
+    private const val MAX_TILES = 8
 
-    private val PILL_IDS = intArrayOf(
-        R.id.pill_0, R.id.pill_1, R.id.pill_2, R.id.pill_3,
-        R.id.pill_4, R.id.pill_5, R.id.pill_6, R.id.pill_7,
+    /** Section colour behind an emoji, as an alpha out of 255. Full strength drowns the glyph. */
+    private const val EMOJI_TILE_TINT_ALPHA = 56
+
+    private val TILE_IDS = intArrayOf(
+        R.id.tile_0, R.id.tile_1, R.id.tile_2, R.id.tile_3,
+        R.id.tile_4, R.id.tile_5, R.id.tile_6, R.id.tile_7,
     )
-    private val PILL_TEXT_IDS = intArrayOf(
-        R.id.pill_0_text, R.id.pill_1_text, R.id.pill_2_text, R.id.pill_3_text,
-        R.id.pill_4_text, R.id.pill_5_text, R.id.pill_6_text, R.id.pill_7_text,
+    private val TILE_GLYPH_IDS = intArrayOf(
+        R.id.tile_0_glyph, R.id.tile_1_glyph, R.id.tile_2_glyph, R.id.tile_3_glyph,
+        R.id.tile_4_glyph, R.id.tile_5_glyph, R.id.tile_6_glyph, R.id.tile_7_glyph,
     )
-    private val PILL_DOT_IDS = intArrayOf(
-        R.id.pill_0_dot, R.id.pill_1_dot, R.id.pill_2_dot, R.id.pill_3_dot,
-        R.id.pill_4_dot, R.id.pill_5_dot, R.id.pill_6_dot, R.id.pill_7_dot,
+    private val TILE_INDICATOR_IDS = intArrayOf(
+        R.id.tile_0_indicator, R.id.tile_1_indicator, R.id.tile_2_indicator,
+        R.id.tile_3_indicator, R.id.tile_4_indicator, R.id.tile_5_indicator,
+        R.id.tile_6_indicator, R.id.tile_7_indicator,
     )
 
     /**
@@ -76,61 +85,40 @@ object ClassicWidgetRenderer {
     ): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.widget_main)
 
-        // Day/night-aware colors picked from resources so they auto-switch.
-        val inactivePillBg = ContextCompat.getColor(context, R.color.widget_pill_bg_inactive)
-        val inactivePillText = ContextCompat.getColor(context, R.color.widget_pill_text_inactive)
-
-        // ----- Pills -----
+        // ----- Section tiles -----
         val activeId = active?.id
-        val pillsToShow = sections.take(MAX_PILLS)
-        pillsToShow.forEachIndexed { idx, section ->
-            val isActive = section.id == activeId
-            val sectionColor = section.color
-
-            rv.setViewVisibility(PILL_IDS[idx], View.VISIBLE)
-            rv.setTextViewText(PILL_TEXT_IDS[idx], section.name)
-
-            if (isActive) {
-                // Active: filled with section color, white text + white dot
-                rv.setColorStateList(
-                    PILL_IDS[idx], "setBackgroundTintList",
-                    ColorStateList.valueOf(sectionColor),
-                )
-                rv.setTextColor(PILL_TEXT_IDS[idx], Color.WHITE)
-                rv.setColorStateList(
-                    PILL_DOT_IDS[idx], "setBackgroundTintList",
-                    ColorStateList.valueOf(Color.WHITE),
-                )
-            } else {
-                // Inactive: muted background, day/night-aware text, section-color dot
-                rv.setColorStateList(
-                    PILL_IDS[idx], "setBackgroundTintList",
-                    ColorStateList.valueOf(inactivePillBg),
-                )
-                rv.setTextColor(PILL_TEXT_IDS[idx], inactivePillText)
-                rv.setColorStateList(
-                    PILL_DOT_IDS[idx], "setBackgroundTintList",
-                    ColorStateList.valueOf(sectionColor),
-                )
-            }
-
-            // Click → switch active section
-            val pillIntent = Intent(context, WidgetActionActivity::class.java).apply {
-                data = Uri.parse("naice-widget://section/${section.id}")
-                putExtra(WidgetActionActivity.EXTRA_SECTION_ID, section.id)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-            }
-            val pillPi = PendingIntent.getActivity(
-                context,
-                section.id.toInt(),
-                pillIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            rv.setOnClickPendingIntent(PILL_IDS[idx], pillPi)
+        val tilesToShow = sections.take(MAX_TILES)
+        tilesToShow.forEachIndexed { idx, section ->
+            renderTile(context, rv, idx, section, isActive = section.id == activeId)
         }
-        // Hide unused pill slots
-        for (idx in pillsToShow.size until MAX_PILLS) {
-            rv.setViewVisibility(PILL_IDS[idx], View.GONE)
+        // Hide unused tile slots
+        for (idx in tilesToShow.size until MAX_TILES) {
+            rv.setViewVisibility(TILE_IDS[idx], View.GONE)
+        }
+
+        // ----- Section caption -----
+        // Names left the tiles, so this line is now the only place the active section is
+        // spelled out. Counting off `items` costs nothing — they're already loaded.
+        if (active == null) {
+            rv.setTextViewText(R.id.section_caption, "")
+        } else {
+            val open = items.count { !it.isChecked }
+            val done = items.size - open
+            rv.setTextViewText(
+                R.id.section_caption,
+                buildString {
+                    // The letter fallback is the name's own initial, so pairing the two
+                    // reads as "T ToDos". Only a real emoji is worth repeating here.
+                    if (active.hasEmoji) append("${active.glyph}  ")
+                    append(active.name)
+                    append("   ·   $open open")
+                    if (done > 0) append(" · $done done")
+                },
+            )
+            rv.setTextColor(
+                R.id.section_caption,
+                ContextCompat.getColor(context, R.color.widget_text_muted),
+            )
         }
 
         // ----- App logo (top-left) → opens MainActivity at the active section -----
@@ -207,6 +195,73 @@ object ClassicWidgetRenderer {
         }
 
         return rv
+    }
+
+    /**
+     * One section tile: glyph, tint and selected underline, plus the tap target that switches
+     * the widget's active section.
+     *
+     * The emoji and letter cases are deliberately styled differently. An emoji is already a
+     * multicoloured glyph, so it sits on a light wash of the section colour; a letter has no
+     * colour of its own, so it takes white-on-solid to stay legible. Both read as the same
+     * component because the shape and size never change.
+     */
+    private fun renderTile(
+        context: Context,
+        rv: RemoteViews,
+        idx: Int,
+        section: Section,
+        isActive: Boolean,
+    ) {
+        val glyphId = TILE_GLYPH_IDS[idx]
+
+        rv.setViewVisibility(TILE_IDS[idx], View.VISIBLE)
+        rv.setTextViewText(glyphId, section.glyph)
+
+        if (section.hasEmoji) {
+            rv.setColorStateList(
+                glyphId, "setBackgroundTintList",
+                ColorStateList.valueOf(
+                    ColorUtils.setAlphaComponent(section.color, EMOJI_TILE_TINT_ALPHA),
+                ),
+            )
+            rv.setTextColor(
+                glyphId,
+                ContextCompat.getColor(context, R.color.widget_text),
+            )
+        } else {
+            rv.setColorStateList(
+                glyphId, "setBackgroundTintList",
+                ColorStateList.valueOf(section.color),
+            )
+            rv.setTextColor(glyphId, Color.WHITE)
+        }
+
+        // Selected state rides on a separate view: RemoteViews can't add a stroke to a
+        // drawable at runtime, and tinting the tile would tint any stroke along with it.
+        rv.setViewVisibility(
+            TILE_INDICATOR_IDS[idx],
+            if (isActive) View.VISIBLE else View.INVISIBLE,
+        )
+        rv.setColorStateList(
+            TILE_INDICATOR_IDS[idx], "setBackgroundTintList",
+            ColorStateList.valueOf(section.color),
+        )
+
+        val tileIntent = Intent(context, WidgetActionActivity::class.java).apply {
+            data = Uri.parse("naice-widget://section/${section.id}")
+            putExtra(WidgetActionActivity.EXTRA_SECTION_ID, section.id)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        }
+        rv.setOnClickPendingIntent(
+            TILE_IDS[idx],
+            PendingIntent.getActivity(
+                context,
+                section.id.toInt(),
+                tileIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ),
+        )
     }
 
     private fun buildItemsCollection(
