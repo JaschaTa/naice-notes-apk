@@ -2,6 +2,7 @@ package com.jt.naicenotes.ui.home
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -76,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -89,6 +92,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -102,6 +106,7 @@ import com.jt.naicenotes.data.remote.UserAgents
 import com.jt.naicenotes.ui.common.ColorPickerDialog
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.SectionNameDialog
+import com.jt.naicenotes.ui.util.UiPrefs
 import com.jt.naicenotes.ui.util.randomSectionColor
 import com.jt.naicenotes.ui.util.rememberRepository
 import kotlinx.coroutines.launch
@@ -156,6 +161,16 @@ fun HomeScreen(
     val openCounts by remember(repo) { repo.observeOpenCounts() }
         .collectAsStateWithLifecycle(initialValue = emptyMap())
 
+    // Collapsing the rail hands its 70dp back to the list — worth it while reading or writing
+    // long items. Persisted, because it's a preference rather than a transient mode.
+    val context = LocalContext.current
+    val railCollapsed by remember(context) { UiPrefs.observeRailCollapsed(context) }
+        .collectAsStateWithLifecycle(initialValue = false)
+    val railWidth by animateDpAsState(
+        targetValue = if (railCollapsed) 0.dp else RAIL_WIDTH,
+        label = "railWidth",
+    )
+
     // If the app was launched from the widget (logo tap), the widget passes
     // its currently-active section id in. Whenever that changes (cold start or
     // onNewIntent), align the in-app selection to it.
@@ -199,21 +214,29 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(padding),
             ) {
-                SectionRail(
-                    sections = sections,
-                    selectedId = selectedSection.id,
-                    openCounts = openCounts,
-                    onSelect = { selectedId = it },
-                    onNew = { dialog = HomeDialog.NewSection },
-                    onReorder = { newOrder ->
-                        scope.launch { repo.reorderSections(newOrder) }
-                    },
-                )
+                // Dropped entirely at zero width rather than kept as a 0dp LazyColumn.
+                if (railWidth > 0.dp) {
+                    SectionRail(
+                        width = railWidth,
+                        sections = sections,
+                        selectedId = selectedSection.id,
+                        openCounts = openCounts,
+                        onSelect = { selectedId = it },
+                        onNew = { dialog = HomeDialog.NewSection },
+                        onReorder = { newOrder ->
+                            scope.launch { repo.reorderSections(newOrder) }
+                        },
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     ChannelHeader(
                         section = selectedSection,
                         openCount = openCounts[selectedSection.id] ?: 0,
                         accent = accent,
+                        railCollapsed = railCollapsed,
+                        onToggleRail = {
+                            scope.launch { UiPrefs.setRailCollapsed(context, !railCollapsed) }
+                        },
                         onScan = { onScan(selectedSection.id) },
                         onClearChecked = { dialog = HomeDialog.ClearChecked },
                         onMoveDoneToBottom = {
@@ -321,6 +344,8 @@ private fun ChannelHeader(
     section: Section,
     openCount: Int,
     accent: Color,
+    railCollapsed: Boolean,
+    onToggleRail: () -> Unit,
     onScan: () -> Unit,
     onClearChecked: () -> Unit,
     onMoveDoneToBottom: () -> Unit,
@@ -334,17 +359,24 @@ private fun ChannelHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+            .padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        RailToggle(
+            section = section,
+            collapsed = railCollapsed,
+            accent = accent,
+            onClick = onToggleRail,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Only a real emoji earns a place here. The letter fallback is derived from
-                // the name, so drawing it alongside reads as "T ToDos".
-                if (section.hasEmoji) {
+                // the name, so drawing it alongside reads as "T ToDos". When the rail is
+                // collapsed the toggle already carries the glyph, so it isn't repeated.
+                if (section.hasEmoji && !railCollapsed) {
                     Text(
                         text = section.glyph,
                         style = MaterialTheme.typography.titleLarge,
@@ -439,9 +471,56 @@ private fun ChannelHeader(
     }
 }
 
+/**
+ * Shows/hides the rail. Collapsed, it wears the active section's glyph, so the one thing the rail
+ * was carrying — which section you're in — survives its disappearance, and the control that brings
+ * the rail back is the same shape as the tile it stands in for.
+ */
+@Composable
+private fun RailToggle(
+    section: Section,
+    collapsed: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (collapsed) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (section.hasEmoji) accent.copy(alpha = 0.22f) else accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = section.glyph,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                    ),
+                    color = if (section.hasEmoji) Color.Unspecified else Color.White,
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowLeft,
+                contentDescription = "Hide sections",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SectionRail(
+    width: Dp,
     sections: List<Section>,
     selectedId: Long,
     openCounts: Map<Long, Int>,
@@ -474,9 +553,12 @@ private fun SectionRail(
     LazyColumn(
         state = lazyListState,
         modifier = Modifier
-            .width(RAIL_WIDTH)
+            .width(width)
             .fillMaxHeight()
-            .background(RAIL_BACKGROUND),
+            .background(RAIL_BACKGROUND)
+            // Tiles keep their full size while the width animates, so without this they
+            // spill over the content during the transition.
+            .clipToBounds(),
         contentPadding = PaddingValues(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
