@@ -208,10 +208,23 @@ fun HomeScreen(
                     },
                 )
                 BottomToolbar(
+                    isInbox = selectedSection.isInbox,
                     onScan = { onScan(selectedSection.id) },
                     onClearChecked = { dialog = HomeDialog.ClearChecked },
                     onMoveDoneToBottom = {
                         scope.launch { repo.moveDoneToBottom(selectedSection.id) }
+                    },
+                    onToggleInbox = {
+                        scope.launch {
+                            repo.setSectionRemoteKind(
+                                section = selectedSection,
+                                remoteKind = if (selectedSection.isInbox) {
+                                    null
+                                } else {
+                                    Section.REMOTE_KIND_INBOX
+                                },
+                            )
+                        }
                     },
                     onRename = { dialog = HomeDialog.RenameSection },
                     onRecolor = { dialog = HomeDialog.RecolorSection },
@@ -643,6 +656,17 @@ private fun ItemRow(
                     )
                 }
             }
+            // Delivery receipt. `pushedAt` is only ever set in a section that pushes, so
+            // this needs no knowledge of the section — and its absence is what the
+            // launch-time retry looks for, making the glyph an honest reflection of state.
+            if (item.isPushed && !editing) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Sent to Claude inbox",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
         }
     }
 }
@@ -742,9 +766,11 @@ private fun openLink(context: android.content.Context, url: String?) {
 
 @Composable
 private fun BottomToolbar(
+    isInbox: Boolean,
     onScan: () -> Unit,
     onClearChecked: () -> Unit,
     onMoveDoneToBottom: () -> Unit,
+    onToggleInbox: () -> Unit,
     onRename: () -> Unit,
     onRecolor: () -> Unit,
     onDelete: () -> Unit,
@@ -784,6 +810,14 @@ private fun BottomToolbar(
                 DropdownMenuItem(
                     text = { Text("Clear checked") },
                     onClick = { open = false; onClearChecked() },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isInbox) "Stop sending to Claude" else "Send new notes to Claude",
+                        )
+                    },
+                    onClick = { open = false; onToggleInbox() },
                 )
                 DropdownMenuItem(
                     text = { Text("Rename section") },

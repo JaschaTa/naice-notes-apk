@@ -11,7 +11,7 @@ import com.jt.naicenotes.data.entity.Section
 
 @Database(
     entities = [Section::class, Item::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -53,6 +53,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5 adds the vault task-inbox bridge: `sections.remoteKind` marks a section whose
+         * new items get pushed, `items.pushedAt` records that a push landed. Both nullable,
+         * so every existing section stays an ordinary one and no row needs backfilling.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sections ADD COLUMN remoteKind TEXT")
+                db.execSQL("ALTER TABLE items ADD COLUMN pushedAt INTEGER")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -62,7 +74,12 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // Never fall back to destructive migration — this DB is the only
                     // copy of Jascha's real notes and there is no export yet.
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                    )
                     .build().also { instance = it }
             }
     }

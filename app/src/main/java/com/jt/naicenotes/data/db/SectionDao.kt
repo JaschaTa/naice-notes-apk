@@ -15,6 +15,9 @@ interface SectionDao {
     @Query("SELECT * FROM sections ORDER BY position ASC, createdAt ASC")
     fun observeAll(): Flow<List<Section>>
 
+    @Query("SELECT * FROM sections WHERE id = :id")
+    suspend fun byId(id: Long): Section?
+
     @Query("SELECT COUNT(*) FROM sections")
     suspend fun count(): Int
 

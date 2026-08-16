@@ -34,6 +34,24 @@ interface ItemDao {
     @Query("UPDATE items SET linkFetchFailed = 1 WHERE id = :id")
     suspend fun markLinkFetchFailed(id: Long)
 
+    @Query("SELECT * FROM items WHERE id = :id")
+    suspend fun byId(id: Long): Item?
+
+    @Query("UPDATE items SET pushedAt = :at WHERE id = :id")
+    suspend fun markPushed(id: Long, at: Long)
+
+    /**
+     * Notes in a remote-backed section that never reached the inbox — the app was offline at
+     * add time, or the call failed. Ordered oldest-first so a backlog drains in the order it
+     * was captured. No `linkFetchFailed`-style give-up flag exists here on purpose.
+     */
+    @Query(
+        "SELECT i.* FROM items i JOIN sections s ON s.id = i.sectionId " +
+            "WHERE s.remoteKind IS NOT NULL AND i.pushedAt IS NULL " +
+            "ORDER BY i.createdAt ASC",
+    )
+    suspend fun listUnpushedInRemoteSections(): List<Item>
+
     @Query("UPDATE items SET position = :position WHERE id = :id")
     suspend fun setPosition(id: Long, position: Int)
 

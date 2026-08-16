@@ -12,7 +12,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-`local.properties` holds the SDK path plus the recipe-scan webhook URL and secret. It's gitignored; without it the app still builds and only the scan button degrades.
+`local.properties` holds the SDK path plus two webhook configs — recipe scan (`RECIPE_SCAN_URL`, `RECIPE_SCAN_SECRET`) and vault task inbox (`INBOX_PUSH_URL`, `INBOX_PUSH_JWT_SECRET`). It's gitignored, and this repo is public, so **no URL or secret may ever be committed**. A missing key becomes `""` and the matching feature reports itself unconfigured rather than failing at the call site: without it the app still builds, only the scan button and the inbox push degrade. The two secrets must stay distinct — reusing one token across webhooks is prohibited by the company webhook-security rules.
 
 ## Testing on the emulator
 
@@ -129,7 +129,7 @@ Two traps cost real time here, both of which make a working app look broken:
 
 ## Database migrations
 
-**Currently at schema version 4**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`) and `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change) all registered in `AppDatabase.get()`. The next schema change is 4→5.
+**Currently at schema version 5**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change) and `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`) all registered in `AppDatabase.get()`. The next schema change is 5→6.
 
 The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above). Take a backup first: `~/naice-notes-backups/` holds one set per migration so far.
 
@@ -139,13 +139,27 @@ The DB holds the only copy of real notes and there is no export yet, so `AppData
 ./gradlew :app:testDebugUnitTest      # JVM only, no device needed
 ```
 
-Two suites, both plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
+Three suites, all plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
 
 - `ItemDisplayTextTest` — `Item.displayText` / `linkDomain`, including the slug fallback for sites that block metadata fetches.
 - `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
+- `InboxPushTest` — issue title derivation, dedupe-key stability and the JWT wire format for the inbox push. The dedupe assertions are the load-bearing ones: if the key stops being stable, a retry creates a duplicate task.
 
 `androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariant and the migrations all have no coverage.
 
 ## Link previews
 
 Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL via `LinkDetector`, and hands the text to the repository. `NotesRepository.addItem` detects the URL and fires the `onLinkDetected` callback, which `NaiceNotesApp` wires to a background Open Graph fetch — so *every* add path (composer, widget quick-add, share) gets previews without knowing about networking. Fetching is direct from the device, best-effort: a failure leaves the raw URL showing, and `retryMissingLinkPreviews()` retries on next launch for links shared while offline.
+
+## Vault task inbox push
+
+A section can be marked as an inbox (section ⋮ → "Send new notes to Claude", stored as `sections.remoteKind = 'inbox'`). Notes **created** in it are POSTed to an n8n webhook that opens a GitLab issue in the vault's task inbox, which `/process-tasks` later turns into a real task. Capture only — nothing is ever read back, and there is no way to promote a note that already lives in another section (the app has no move-between-sections operation).
+
+The mechanism deliberately copies link previews: `onInboxItem` is a repository callback in the same shape as `onLinkDetected`, so composer, share target and widget quick-add all push without any of them knowing. `InboxPushClient` mirrors `RecipeScanClient`, and `retryPendingInboxPushes()` sits next to `retryMissingLinkPreviews()` in `onCreate`.
+
+Two things that differ from link previews, both on purpose:
+
+- **No give-up flag.** There is no `pushedAt` counterpart to `linkFetchFailed`. A dead URL is worth abandoning; a captured task that never reached the inbox is not, so "never sent" and "send failed" are the same state and get retried forever.
+- **Auth is a signed JWT, not a static header secret.** `JwtSigner` hand-rolls HS256 (~15 lines, no library) and mints a fresh short-lived token per request — including on the retry path, which must never reuse a stored token or it arrives expired. Company rules rank JWT above a static bearer secret for callers we control. Note the honest limit: a secret inside a sideloaded APK is extractable, so what expiry buys is bounded replay, not secrecy.
+
+Item identity for the webhook's duplicate check is `inboxDedupeKey(id, createdAt)` — immutable fields only, so editing a note before a retry lands doesn't make it look like a new capture. `InboxPushTest` locks this.

@@ -34,8 +34,17 @@ data class Item(
      * metadata). Keeps the launch-time retry from hammering dead URLs forever.
      */
     val linkFetchFailed: Boolean = false,
+    /**
+     * When this note reached the vault task inbox, or null if it hasn't. Only meaningful in
+     * a section whose `remoteKind` is set. Deliberately has no failure counterpart: unlike
+     * a dead link, a task that never landed should keep being retried, so "not sent yet"
+     * and "sending failed" are intentionally the same state.
+     */
+    val pushedAt: Long? = null,
 ) {
     val isLink: Boolean get() = linkUrl != null
+
+    val isPushed: Boolean get() = pushedAt != null
 
     /**
      * The item's main line. Prefers the fetched page title; falls back to a readable name

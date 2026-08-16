@@ -19,12 +19,14 @@ android {
         applicationId = "com.jt.naicenotes"
         minSdk = 34
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.4.4"
+        versionCode = 10
+        versionName = "1.4.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Read recipe-scan webhook config from local.properties (gitignored)
+        // Read webhook config from local.properties (gitignored). The repo is public, so
+        // no URL or secret may be committed — a missing key yields "" and the feature
+        // reports itself as unconfigured rather than failing at the call site.
         val localProps = Properties()
         val localPropsFile = rootProject.file("local.properties")
         if (localPropsFile.exists()) {
@@ -39,6 +41,18 @@ android {
             "String",
             "RECIPE_SCAN_SECRET",
             "\"${localProps.getProperty("RECIPE_SCAN_SECRET", "")}\"",
+        )
+        // Vault task-inbox push. Its own secret, never the recipe-scan one: reusing a
+        // token across webhooks is prohibited by the company webhook-security rules.
+        buildConfigField(
+            "String",
+            "INBOX_PUSH_URL",
+            "\"${localProps.getProperty("INBOX_PUSH_URL", "")}\"",
+        )
+        buildConfigField(
+            "String",
+            "INBOX_PUSH_JWT_SECRET",
+            "\"${localProps.getProperty("INBOX_PUSH_JWT_SECRET", "")}\"",
         )
     }
 

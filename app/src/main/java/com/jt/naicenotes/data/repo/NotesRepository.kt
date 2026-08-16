@@ -15,6 +15,12 @@ class NotesRepository(
      * networking.
      */
     private val onLinkDetected: (itemId: Long, url: String) -> Unit = { _, _ -> },
+    /**
+     * Called when an item is added to a section that pushes to a remote inbox. Same idea as
+     * [onLinkDetected]: every add path — composer, share target, widget quick-add — gets the
+     * behaviour without knowing that networking is involved.
+     */
+    private val onInboxItem: (item: Item, sectionName: String) -> Unit = { _, _ -> },
 ) {
 
     private val sections = db.sectionDao()
@@ -58,11 +64,11 @@ class NotesRepository(
     /** New items land at the top of the section, not the bottom. */
     suspend fun addItem(sectionId: Long, text: String): Long {
         val url = LinkDetector.findUrl(text)
-        val id = items.insertAtTop(
-            Item(sectionId = sectionId, text = text, position = 0, linkUrl = url),
-        )
+        val row = Item(sectionId = sectionId, text = text, position = 0, linkUrl = url)
+        val id = items.insertAtTop(row)
         onChange()
         if (url != null) onLinkDetected(id, url)
+        notifyIfInbox(sectionId) { section -> onInboxItem(row.copy(id = id), section.name) }
         return id
     }
 
@@ -82,7 +88,44 @@ class NotesRepository(
         val rows = texts.map { Item(sectionId = sectionId, text = it, position = 0) }
         val ids = items.insertAllAtTop(sectionId, rows)
         onChange()
+        notifyIfInbox(sectionId) { section ->
+            rows.zip(ids).forEach { (row, id) -> onInboxItem(row.copy(id = id), section.name) }
+        }
         return ids
+    }
+
+    /**
+     * Runs [block] only when the target section pushes to a remote inbox. One section lookup
+     * per add, and none of the callers need to know whether the section is special.
+     */
+    private suspend fun notifyIfInbox(sectionId: Long, block: (Section) -> Unit) {
+        val section = sections.byId(sectionId) ?: return
+        if (section.isInbox) block(section)
+    }
+
+    suspend fun markPushed(itemId: Long, at: Long = System.currentTimeMillis()) {
+        items.markPushed(itemId, at)
+        onChange()
+    }
+
+    /**
+     * Notes still owed to the inbox, each with its section name. Drives the launch-time
+     * retry, so it covers anything captured while offline.
+     */
+    suspend fun pendingInboxItems(): List<PendingInboxItem> {
+        val pending = items.listUnpushedInRemoteSections()
+        if (pending.isEmpty()) return emptyList()
+        val names = pending.map { it.sectionId }.distinct()
+            .mapNotNull { id -> sections.byId(id)?.let { id to it.name } }
+            .toMap()
+        return pending.mapNotNull { item ->
+            names[item.sectionId]?.let { PendingInboxItem(item, it) }
+        }
+    }
+
+    suspend fun setSectionRemoteKind(section: Section, remoteKind: String?) {
+        sections.update(section.copy(remoteKind = remoteKind))
+        onChange()
     }
 
     suspend fun toggleItem(item: Item) {
@@ -129,3 +172,6 @@ class NotesRepository(
         onChange()
     }
 }
+
+/** An item owed to a remote inbox, paired with the section name the inbox wants reported. */
+data class PendingInboxItem(val item: Item, val sectionName: String)
