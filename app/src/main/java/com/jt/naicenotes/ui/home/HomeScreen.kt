@@ -41,7 +41,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -87,6 +86,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -373,15 +374,8 @@ private fun ChannelHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Only a real emoji earns a place here. The letter fallback is derived from
-                // the name, so drawing it alongside reads as "T ToDos". When the rail is
-                // collapsed the toggle already carries the glyph, so it isn't repeated.
-                if (section.hasEmoji && !railCollapsed) {
-                    Text(
-                        text = section.glyph,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                }
+                // No glyph here — the toggle to the left carries it in both states, and a
+                // letter fallback next to the name it came from reads as "T ToDos".
                 Text(
                     text = section.name,
                     style = MaterialTheme.typography.headlineSmall.copy(
@@ -472,9 +466,9 @@ private fun ChannelHeader(
 }
 
 /**
- * Shows/hides the rail. Collapsed, it wears the active section's glyph, so the one thing the rail
- * was carrying — which section you're in — survives its disappearance, and the control that brings
- * the rail back is the same shape as the tile it stands in for.
+ * Shows/hides the rail. It's the active section's glyph in both states, never a chevron: the tile
+ * always means "this section", and tapping it always toggles the rail. Collapsed, that also keeps
+ * the one thing the rail was carrying — which section you're in — visible after it's gone.
  */
 @Composable
 private fun RailToggle(
@@ -490,28 +484,22 @@ private fun RailToggle(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (collapsed) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (section.hasEmoji) accent.copy(alpha = 0.22f) else accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = section.glyph,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                    ),
-                    color = if (section.hasEmoji) Color.Unspecified else Color.White,
-                )
-            }
-        } else {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowLeft,
-                contentDescription = "Hide sections",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (section.hasEmoji) accent.copy(alpha = 0.22f) else accent)
+                .semantics {
+                    contentDescription = if (collapsed) "Show sections" else "Hide sections"
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = section.glyph,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                ),
+                color = if (section.hasEmoji) Color.Unspecified else Color.White,
             )
         }
     }
