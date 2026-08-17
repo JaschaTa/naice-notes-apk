@@ -1,6 +1,7 @@
 package com.jt.naicenotes
 
 import com.jt.naicenotes.ui.util.firstGrapheme
+import com.jt.naicenotes.ui.util.nextIconInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -57,6 +58,34 @@ class GraphemeTest {
         assertNull(firstGrapheme(""))
         assertNull(firstGrapheme("   "))
         assertNull(firstGrapheme("\n\t"))
+    }
+
+    @Test
+    fun `tapping a new emoji over an existing one replaces it`() {
+        // The regression this exists for: a text field appends, so the emoji keyboard hands us
+        // "🛒🍳". Reading from the front kept 🛒 and the keyboard looked broken.
+        assertEquals("🍳", nextIconInput("🛒", "🛒🍳"))
+        assertEquals("X", nextIconInput("🛒", "🛒X"))
+        assertEquals("👍🏽", nextIconInput("❤️", "❤️👍🏽"))
+    }
+
+    @Test
+    fun `typing into an empty field takes the first character`() {
+        assertEquals("🛒", nextIconInput(null, "🛒"))
+        assertEquals("🛒", nextIconInput("", "🛒 shopping"))
+    }
+
+    @Test
+    fun `replacing a selection reads from the front`() {
+        // Not an append — the old value is gone, so there's no "new part" to prefer.
+        assertEquals("🍳", nextIconInput("🛒", "🍳"))
+        assertEquals("🍳", nextIconInput("🛒", "🍳🛒"))
+    }
+
+    @Test
+    fun `emptying the field clears the icon`() {
+        assertNull(nextIconInput("🛒", ""))
+        assertNull(nextIconInput("🛒", "   "))
     }
 
     @Test

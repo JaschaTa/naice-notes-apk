@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.ui.util.SectionColorPalette
 import com.jt.naicenotes.ui.util.SectionEmojiPalette
-import com.jt.naicenotes.ui.util.firstGrapheme
+import com.jt.naicenotes.ui.util.nextIconInput
 
 @Composable
 fun SectionNameDialog(
@@ -81,7 +81,7 @@ fun SectionNameDialog(
                         // every emoji the device can render is reachable without shipping any.
                         OutlinedTextField(
                             value = emoji.orEmpty(),
-                            onValueChange = { emoji = firstGrapheme(it) },
+                            onValueChange = { emoji = nextIconInput(emoji, it) },
                             singleLine = true,
                             placeholder = { Text("🙂") },
                             textStyle = MaterialTheme.typography.titleMedium,
