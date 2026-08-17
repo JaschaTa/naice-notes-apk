@@ -1289,6 +1289,7 @@ private fun HomeDialogs(
                 onDismiss = onDismiss,
                 onConfirm = onRenameSection,
                 initialEmoji = it.emoji,
+                accent = Color(it.color),
             )
         }
         HomeDialog.RecolorSection -> selectedSection?.let {

@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -27,8 +30,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.ui.util.SectionColorPalette
 import com.jt.naicenotes.ui.util.SectionEmojiPalette
+import com.jt.naicenotes.ui.util.firstGrapheme
 
 @Composable
 fun SectionNameDialog(
@@ -38,6 +43,8 @@ fun SectionNameDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, emoji: String?) -> Unit,
     initialEmoji: String? = null,
+    /** The section's own colour when renaming; a new section hasn't been assigned one yet. */
+    accent: Color? = null,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var emoji by remember { mutableStateOf(initialEmoji) }
@@ -46,7 +53,12 @@ fun SectionNameDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Scrollable: the icon field, its hint and three rows of shortcuts overflow a short
+            // screen once the keyboard is up, and AlertDialog won't scroll this slot itself.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -60,16 +72,47 @@ fun SectionNameDialog(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // "None" first, then the quick-pick palette. Anything the system keyboard
-                    // can type is valid too — this is a shortcut, not the only way in.
-                    (listOf(null) + SectionEmojiPalette).chunked(EMOJI_ROW_SIZE).forEach { row ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        // A plain text field is the whole trick: the system keyboard's emoji tab
+                        // is a complete picker with search, skin tones and the user's recents, so
+                        // every emoji the device can render is reachable without shipping any.
+                        OutlinedTextField(
+                            value = emoji.orEmpty(),
+                            onValueChange = { emoji = firstGrapheme(it) },
+                            singleLine = true,
+                            placeholder = { Text("🙂") },
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.width(96.dp),
+                        )
+                        GlyphPreview(name = name, emoji = emoji, accent = accent)
+                    }
+                    Text(
+                        text = "Tap the field, then your keyboard's emoji key. " +
+                            "Leave it empty to use the first letter.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Quick pick",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // Shortcuts only — tapping the selected one again clears it.
+                    SectionEmojiPalette.chunked(EMOJI_ROW_SIZE).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             row.forEach { candidate ->
                                 EmojiChip(
                                     emoji = candidate,
-                                    fallbackLetter = name.trim().firstOrNull()?.uppercase() ?: "?",
                                     isSelected = candidate == emoji,
-                                    onClick = { emoji = candidate },
+                                    onClick = {
+                                        emoji = if (emoji == candidate) null else candidate
+                                    },
                                 )
                             }
                         }
@@ -91,13 +134,35 @@ fun SectionNameDialog(
 private const val EMOJI_ROW_SIZE = 6
 
 /**
- * One icon choice. [emoji] of null is the "no icon" option, which previews the letter fallback
- * the section would actually render — so picking "none" isn't a leap of faith.
+ * Live preview of the tile the rail and widget will draw. It builds a throwaway [Section] and reads
+ * `glyph` / `hasEmoji` off it rather than re-deriving them, so the preview cannot disagree with the
+ * real thing — including the styling split, where an emoji gets a wash of the section colour and a
+ * letter gets white-on-solid.
  */
 @Composable
+private fun GlyphPreview(name: String, emoji: String?, accent: Color?) {
+    val tint = accent ?: MaterialTheme.colorScheme.primary
+    val preview = Section(name = name, color = tint.toArgb(), position = 0, emoji = emoji)
+
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(if (preview.hasEmoji) tint.copy(alpha = 0.22f) else tint),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = preview.glyph,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+            color = if (preview.hasEmoji) Color.Unspecified else Color.White,
+        )
+    }
+}
+
+/** One quick-pick shortcut. Tapping the selected one again clears the icon. */
+@Composable
 private fun EmojiChip(
-    emoji: String?,
-    fallbackLetter: String,
+    emoji: String,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -120,19 +185,7 @@ private fun EmojiChip(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = emoji ?: fallbackLetter,
-            style = if (emoji != null) {
-                MaterialTheme.typography.titleMedium
-            } else {
-                MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-            },
-            color = if (emoji != null) {
-                Color.Unspecified
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
+        Text(text = emoji, style = MaterialTheme.typography.titleMedium)
     }
 }
 

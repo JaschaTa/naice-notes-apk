@@ -131,6 +131,10 @@ Two traps cost real time here, both of which make a working app look broken:
 
 **A section's tile is an emoji or its name's initial, and the two are styled differently.** `Section.glyph` picks one and `Section.hasEmoji` decides the styling: an emoji is already a multicoloured glyph so it sits on a ~22% wash of the section colour, while a letter has no colour of its own and takes white-on-solid to stay legible. That pairing is duplicated in four places — `RailTile`, `RailToggle`, the move-to-section picker and the widget's `renderTile` — so changing one means changing all four. `sections.emoji` is nullable and everything falls back to the initial, which is what every pre-v6 section renders. `SectionGlyphTest` locks the fallback rules.
 
+**The icon picker ships no emoji — the system keyboard is the picker.** The dialog's "Icon" field is a plain `OutlinedTextField`; the user taps it and uses their keyboard's emoji tab, which brings search, skin tones and their own recents for free. Input is clamped by `firstGrapheme`, because one visible character is neither one `Char` nor one code point: truncating otherwise turns ❤️ into a monochrome ❤ and 👍🏽 into a yellow 👍. `GraphemeTest` locks that. `SectionEmojiPalette` remains only as one-tap shortcuts, and tapping the selected one clears it.
+
+The alternative was `androidx.emoji2:emoji2-emojipicker`, measured at **+4.44 MB (12.3%)** on the debug APK — nothing shrinks it with `isMinifyEnabled = false`. Rejected on the same grounds as `material-icons-extended`: the platform already does this, and a text field costs nothing.
+
 **Section colours are persisted as ARGB ints** via the framework `androidx.compose.ui.graphics.toArgb`. Two hand-rolled `Color.toArgb()` extensions used to shadow it; they were provably equivalent (verified across all 256 channel values) and are gone. `SectionColorTest` locks the palette-to-literal mapping — if that test fails, stored colours are at risk.
 
 ## Database migrations
