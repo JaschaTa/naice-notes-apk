@@ -12,8 +12,11 @@ against real data. The other four app directions are kept for reference:
 
 - **Section emoji** — nullable `emoji` on `Section`, `MIGRATION_5_6`. `Section.glyph` falls back to
   the name's first letter; `hasEmoji` drives the styling split (emoji sits on a 22% wash of the
-  section colour, a letter takes white-on-solid). Picker lives in the rename/create dialog and
-  previews the letter fallback on its "none" chip.
+  section colour, a letter takes white-on-solid). **Any** emoji works: the dialog's icon field is a
+  plain text field, so the system keyboard's emoji tab is the picker — search, skin tones and
+  recents for free, and 0 MB. Embedding `androidx.emoji2:emoji2-emojipicker` instead was measured at
+  +4.44 MB (12.3%) and rejected. The 16-emoji palette survives only as one-tap shortcuts, and a live
+  preview tile shows exactly what the rail will draw.
 - **App rail** — 70dp, fixed near-black in both themes, all sections visible with open-count badges,
   active indicator bar, drag-to-reorder preserved.
 - **Channel header** — glyph + name + count, and the per-section menu the bottom toolbar used to hold.
