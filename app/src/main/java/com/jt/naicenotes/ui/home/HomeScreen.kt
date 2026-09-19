@@ -3,11 +3,9 @@ package com.jt.naicenotes.ui.home
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -895,7 +893,7 @@ private fun ItemsList(
 
         if (waiting.isNotEmpty()) {
             // A String key can't collide with the Long ids around it.
-            item("not-due-divider") { NotDueDivider(count = waiting.size) }
+            item("not-due-divider") { NotDueDivider() }
         }
 
         items(waiting, key = { it.id }) { item ->
@@ -925,17 +923,23 @@ private fun ItemsList(
     }
 }
 
+/**
+ * A rule, not a row. A filled band sat at the same weight as the notes under it and read as
+ * one of them; a centred label between two rules can only be a boundary.
+ */
 @Composable
-private fun NotDueDivider(count: Int) {
+private fun NotDueDivider() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 12.dp, top = 14.dp, bottom = 4.dp)
-            .clip(RoundedCornerShape(7.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant,
+        )
         Text(
             text = "NOT DUE YET",
             style = MaterialTheme.typography.labelSmall.copy(
@@ -944,11 +948,9 @@ private fun NotDueDivider(count: Int) {
             ),
             color = MaterialTheme.colorScheme.outline,
         )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.outline,
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant,
         )
     }
 }
@@ -1107,11 +1109,6 @@ private fun ItemRow(
                 LinkContent(
                     item = item,
                     onOpen = { openLink(context, item.linkUrl) },
-                    onEdit = {
-                        if (isClaudeSection) return@LinkContent
-                        draft = item.text
-                        editing = true
-                    },
                 )
             } else if (editing) {
                 androidx.compose.foundation.text.BasicTextField(
@@ -1219,14 +1216,6 @@ private fun ItemRow(
                             text = { Text(if (item.isChecked) "Mark as open" else "Mark as done") },
                             onClick = { actionsOpen = false; onToggle() },
                         )
-                        DropdownMenuItem(
-                            text = { Text("Edit text") },
-                            onClick = {
-                                actionsOpen = false
-                                draft = item.text
-                                editing = true
-                            },
-                        )
                         // The composer can only schedule a note as it's written; this is how
                         // one already on the list gets a timer, changes it, or loses it.
                         DropdownMenuItem(
@@ -1257,15 +1246,14 @@ private fun ItemRow(
 }
 
 /**
- * Compact link card: thumbnail + title + domain, two lines tall. Tapping opens the page;
- * long-press falls back to editing the raw text, since tap is taken.
+ * Compact link card: thumbnail + title + domain, two lines tall. Tapping opens the page —
+ * the only thing there is to do with it. A URL isn't text worth correcting by hand, so unlike
+ * a plain note this row has no edit mode at all.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RowScope.LinkContent(
     item: Item,
     onOpen: () -> Unit,
-    onEdit: () -> Unit,
 ) {
     val dim = item.isChecked
     val strike = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None
@@ -1274,7 +1262,7 @@ private fun RowScope.LinkContent(
         modifier = Modifier
             .weight(1f)
             .heightIn(min = 44.dp)
-            .combinedClickable(onClick = onOpen, onLongClick = onEdit)
+            .clickable(onClick = onOpen)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
