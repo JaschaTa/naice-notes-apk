@@ -33,6 +33,14 @@ interface SectionDao {
     @Query("UPDATE sections SET position = :position WHERE id = :id")
     suspend fun setPosition(id: Long, position: Int)
 
+    /**
+     * Clears [remoteKind] everywhere except [exceptId]. There's no unique index backing
+     * "only one Claude section" — the invariant is kept by calling this before setting a
+     * new one, so a stray second row can never accumulate through the UI.
+     */
+    @Query("UPDATE sections SET remoteKind = NULL WHERE remoteKind = :remoteKind AND id != :exceptId")
+    suspend fun clearRemoteKind(remoteKind: String, exceptId: Long)
+
     @Delete
     suspend fun delete(section: Section)
 }

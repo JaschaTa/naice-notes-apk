@@ -79,7 +79,7 @@ class NotesRepository(
         val id = items.insertAtTop(row)
         onChange()
         if (url != null) onLinkDetected(id, url)
-        notifyIfInbox(sectionId) { section -> onInboxItem(row.copy(id = id), section.name) }
+        notifyIfClaudeSection(sectionId) { section -> onInboxItem(row.copy(id = id), section.name) }
         return id
     }
 
@@ -99,7 +99,7 @@ class NotesRepository(
         val rows = texts.map { Item(sectionId = sectionId, text = it, position = 0) }
         val ids = items.insertAllAtTop(sectionId, rows)
         onChange()
-        notifyIfInbox(sectionId) { section ->
+        notifyIfClaudeSection(sectionId) { section ->
             rows.zip(ids).forEach { (row, id) -> onInboxItem(row.copy(id = id), section.name) }
         }
         return ids
@@ -109,9 +109,9 @@ class NotesRepository(
      * Runs [block] only when the target section pushes to a remote inbox. One section lookup
      * per add, and none of the callers need to know whether the section is special.
      */
-    private suspend fun notifyIfInbox(sectionId: Long, block: (Section) -> Unit) {
+    private suspend fun notifyIfClaudeSection(sectionId: Long, block: (Section) -> Unit) {
         val section = sections.byId(sectionId) ?: return
-        if (section.isInbox) block(section)
+        if (section.isClaudeSection) block(section)
     }
 
     suspend fun markPushed(itemId: Long, at: Long = System.currentTimeMillis()) {
@@ -134,8 +134,15 @@ class NotesRepository(
         }
     }
 
-    suspend fun setSectionRemoteKind(section: Section, remoteKind: String?) {
-        sections.update(section.copy(remoteKind = remoteKind))
+    /**
+     * Single-select: designating a section clears the flag from whichever section held it.
+     * The composer's send checkbox routes to exactly one section, so two would make the
+     * destination arbitrary. There's no undesignate — moving the flag is the only edit the
+     * UI offers, which keeps "none" a starting state rather than one you can back into.
+     */
+    suspend fun designateClaudeSection(section: Section) {
+        sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
+        sections.update(section.copy(remoteKind = Section.REMOTE_KIND_CLAUDE))
         onChange()
     }
 
@@ -180,6 +187,12 @@ class NotesRepository(
 
     suspend fun clearCheckedItems(sectionId: Long) {
         items.deleteCheckedInSection(sectionId)
+        onChange()
+    }
+
+    /** Empties a section. Irreversible, like [deleteSection] — both sit behind a confirm dialog. */
+    suspend fun clearSection(sectionId: Long) {
+        items.deleteAllInSection(sectionId)
         onChange()
     }
 

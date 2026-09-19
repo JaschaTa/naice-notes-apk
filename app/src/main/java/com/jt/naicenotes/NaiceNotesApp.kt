@@ -6,6 +6,7 @@ import com.jt.naicenotes.data.db.AppDatabase
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.remote.InboxPayload
 import com.jt.naicenotes.data.remote.InboxPushClient
+import com.jt.naicenotes.data.remote.LinkDetector
 import com.jt.naicenotes.data.remote.LinkPreviewClient
 import com.jt.naicenotes.data.remote.PermanentFetchException
 import com.jt.naicenotes.data.remote.inboxDedupeKey
@@ -96,7 +97,7 @@ class NaiceNotesApp : Application() {
             )
             inboxPush.push(payload)
                 .onSuccess { iid ->
-                    repository.markPushed(item.id)
+                    if (item.id != DIRECT_PUSH_SENTINEL_ID) repository.markPushed(item.id)
                     Log.i(TAG, "Pushed item ${item.id} to inbox${iid?.let { " as #$it" }.orEmpty()}")
                 }
                 .onFailure { error ->
@@ -108,6 +109,25 @@ class NaiceNotesApp : Application() {
                     )
                 }
         }
+    }
+
+    /**
+     * Send a note with no Claude section to file it under. The note is pushed but never
+     * stored, so unlike [pushToInbox] from a section there's no row for
+     * [retryPendingInboxPushes] to pick up — a failure here is lost rather than retried.
+     * That's the accepted cost of sending without somewhere to keep the receipt.
+     */
+    fun pushTextDirectly(text: String) {
+        pushToInbox(
+            item = Item(
+                id = DIRECT_PUSH_SENTINEL_ID,
+                sectionId = DIRECT_PUSH_SENTINEL_ID,
+                text = text,
+                position = 0,
+                linkUrl = LinkDetector.findUrl(text),
+            ),
+            sectionName = DIRECT_PUSH_SECTION_NAME,
+        )
     }
 
     /** Covers notes captured while offline, or a webhook that was briefly unreachable. */
@@ -144,5 +164,9 @@ class NaiceNotesApp : Application() {
 
         /** Keep a cold start cheap even if a lot of links failed while offline. */
         private const val MAX_RETRIES_PER_LAUNCH = 10
+
+        /** Marks a payload built from text alone. Room ids start at 1, so it can't collide. */
+        private const val DIRECT_PUSH_SENTINEL_ID = 0L
+        private const val DIRECT_PUSH_SECTION_NAME = "(no Claude section)"
     }
 }

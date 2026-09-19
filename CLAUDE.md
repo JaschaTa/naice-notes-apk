@@ -102,6 +102,8 @@ Caveat: this is User-Agent spoofing, milder than the Chrome claim it replaced bu
 
 **The widget renders `item.displayText`, not `item.text` (v1.4.1).** Otherwise link rows show raw tracking URLs in the widget while the app shows proper titles.
 
+**Two `items()` blocks over effect-synced state crash the LazyColumn, one frame later.** The rail renders normal sections from `ordered` (a `mutableStateListOf` the drag needs, filled by a `LaunchedEffect`) and Claude sections straight from `sections`. Designating a section puts it in the second list *during composition* while the first is still stale, so for exactly one frame both emit the same key — `IllegalArgumentException: Key "4" was already used`, a hard crash, not a glitch. The symptom is misleading: the app dies on the *next* frame, so it looks like whatever you tapped afterwards. Fix is to make the split authoritative at composition time — filter the effect-backed list by the fresh ids (`ordered.filter { it.id !in claudeIds }`) rather than trusting it to have caught up. Any time a LazyColumn draws from both a derived list and a `LaunchedEffect`-synced one, they can disagree for a frame.
+
 **Wikimedia 403s image requests from unrecognised clients (v1.4).** An `og:image` on `upload.wikimedia.org` fetched fine via OkHttp but failed to load in Coil, because Coil's default User-Agent gets refused. Link thumbnails therefore build an `ImageRequest` with an explicit browser User-Agent. Independently, the thumbnail draws its fallback icon *underneath* the `AsyncImage` rather than in an `else` branch — a failed load then reveals the icon instead of leaving an empty box.
 
 ## Debugging on a locked device
@@ -121,7 +123,7 @@ Two traps cost real time here, both of which make a working app look broken:
 - Items are ordered `position ASC, createdAt ASC`. New items go to the **top**: the DAO's `insertAtTop` / `insertAllAtTop` shift existing rows down inside a `@Transaction`, so a partial shift can't scramble a section. `moveToSectionTop` joins that family — it lands a moved item at the top of its new section and is transactional for the same reason.
 - Undo-delete deliberately restores an item to its *original* position, not the top.
 - Sections live in a fixed-width left rail (`RAIL_WIDTH`), not the horizontal pill row that preceded it. The rail is a **fixed near-black in both themes** rather than following Material You: it has to make nine saturated section colours read as accents, and a dynamic mid-tone fights them. It collapses to zero width via a header toggle, persisted in `UiPrefs` — the toggle is the active section's glyph tile in *both* states, never a chevron, so the tile always means "this section". Collapsing is a tap, not a left-edge swipe: on One UI gesture nav that edge is system back.
-- Every gesture on an item row is already taken — tap the circle toggles, tap the text edits, long-press drags, swipe deletes — which is why per-item actions hang off an explicit `⋮` menu rather than a press-reveal bar.
+- Every gesture on an item row is already taken — tap the circle toggles, tap the text edits, long-press drags, swipe deletes — which is why per-item actions hang off an explicit `⋮` menu rather than a press-reveal bar. Rows in the Claude section are the one exception: all of those are gated off, leaving the send arrow as the only thing to touch.
 - Inside a bounded `Column`, a `LazyColumn` sibling must use `weight(1f)`, not `fillMaxSize()` — the latter requests the full parent height and overflows by the height of whatever sits beside it.
 - Link rows are capped at a single-line title (`maxLines = 1`) so they stay a predictable two lines tall. Variable-height cards were explicitly rejected during design — see `design-mockups/link-0*.html`.
 
@@ -157,6 +159,7 @@ Four suites, all plain JVM — deliberately no Compose UI tests, because every r
 - `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
 - `InboxPushTest` — issue title derivation, dedupe-key stability and the JWT wire format for the inbox push. The dedupe assertions are the load-bearing ones: if the key stops being stable, a retry creates a duplicate task.
 - `SectionGlyphTest` — `Section.glyph` / `hasEmoji`, including blank-emoji handling, the nameless-section fallback and the multi-codepoint case. Drawn in four places and unobservable inside RemoteViews, so it's locked here instead.
+- `PushedAtFormatTest` — `formatPushedAt`, the send-receipt tooltip's only content. Zone and locale are parameters purely so this can pin them; a zone bug here would read as plausible rather than wrong.
 
 `androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariants (`insertAtTop`, `moveToSectionTop`) and the migrations all have no coverage.
 
@@ -168,9 +171,17 @@ Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL 
 
 ## Vault task inbox push
 
-A section can be marked as an inbox (section ⋮ → "Send new notes to Claude", stored as `sections.remoteKind = 'inbox'`). Notes **created** in it are POSTed to an n8n webhook that opens a GitLab issue in the vault's task inbox, which `/process-tasks` later turns into a real task. Capture only — nothing is ever read back.
+Sending is decided **per note**, by a "Claude" checkbox in the composer's tool rail that's available in every section. Checked, the note is written to the **Claude section** instead of the one you're standing in, and a snackbar confirms it; the checkbox is sticky until unchecked, so a run of captures doesn't mean re-arming it each time. Notes POST to an n8n webhook that opens a GitLab issue in the vault's task inbox, which `/process-tasks` later turns into a real task. Capture only — nothing is ever read back.
 
-Moving an existing note into an inbox section does **not** push it. `moveItemToSection` deliberately doesn't fire `onInboxItem`: `pushedAt` records whether a note ever reached the vault, and re-pushing on every move would duplicate tasks. So the only way to send something is to create it there.
+This replaced a per-section setting ("mark this section, everything typed here gets sent"), which put a one-way send behind a mode you had to remember you were in, and left sent notes sitting in the list as if they were still yours to edit.
+
+**The Claude section** is any section with `remoteKind = 'inbox'` (the stored literal predates the rename and stays for migration reasons — `Section.REMOTE_KIND_CLAUDE`/`isClaudeSection` are the Kotlin names). At most one exists: `designateClaudeSection` clears the flag from whichever section held it, rather than a unique index. There's **no undesignate** — the ⋮ entry only appears on sections that aren't it, so the flag can be moved but never cleared, and "none" stays a starting state rather than one you can back into. Nothing else assumes exactly one — `listUnpushedInRemoteSections` matches `remoteKind IS NOT NULL` and the rail renders however many it finds.
+
+It's a receipt log, not a list: rows have no ⋮ menu and can't be ticked, edited, swiped or reordered, and the send arrow is their one control — tapping it shows the delivery time (or "not sent yet") in a `PlainTooltip`, not a dialog, since a timestamp isn't worth a modal to dismiss. In the rail it's pinned **last behind a divider**, held out of the reorderable list entirely so its stored `position` never decides where it sits.
+
+**With no Claude section configured the checkbox still sends.** `NaiceNotesApp.pushTextDirectly` pushes text alone via a transient never-inserted `Item` carrying `DIRECT_PUSH_SENTINEL_ID` (0, which Room ids never take), and the snackbar says to add a Claude section to track sent notes. Nothing is stored, so there's no row for the launch-time retry to find: a failure on this path is lost rather than retried. That's deliberate — the alternative was a nullable `sectionId` and orphan rows for a fallback state.
+
+Moving an existing note into the Claude section does **not** push it. `moveItemToSection` deliberately doesn't fire `onInboxItem`: `pushedAt` records whether a note ever reached the vault, and re-pushing on every move would duplicate tasks. So the only way to send something is to create it there.
 
 The mechanism deliberately copies link previews: `onInboxItem` is a repository callback in the same shape as `onLinkDetected`, so composer, share target and widget quick-add all push without any of them knowing. `InboxPushClient` mirrors `RecipeScanClient`, and `retryPendingInboxPushes()` sits next to `retryMissingLinkPreviews()` in `onCreate`.
 

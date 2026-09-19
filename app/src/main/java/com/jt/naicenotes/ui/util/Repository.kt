@@ -11,3 +11,7 @@ fun rememberRepository(): NotesRepository {
     val app = LocalContext.current.applicationContext as NaiceNotesApp
     return remember(app) { app.repository }
 }
+
+/** For the few screens that need more than the repository — currently the untracked Claude send. */
+@Composable
+fun rememberApp(): NaiceNotesApp = LocalContext.current.applicationContext as NaiceNotesApp

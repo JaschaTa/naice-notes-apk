@@ -15,6 +15,9 @@ data class Section(
      * is every section that existed before this was introduced. Putting the integration on
      * the section rather than the item means each add path (composer, share target, widget
      * quick-add) needs no knowledge of it.
+     *
+     * At most one section carries a given kind; [com.jt.naicenotes.data.repo.NotesRepository
+     * .setSectionRemoteKind] enforces that rather than a unique index.
      */
     val remoteKind: String? = null,
     /**
@@ -25,7 +28,8 @@ data class Section(
      */
     val emoji: String? = null,
 ) {
-    val isInbox: Boolean get() = remoteKind == REMOTE_KIND_INBOX
+    /** The one section that receives notes sent from the composer's Claude checkbox. */
+    val isClaudeSection: Boolean get() = remoteKind == REMOTE_KIND_CLAUDE
 
     /**
      * What to draw on the section's tile: the emoji if one is set, otherwise the name's first
@@ -41,7 +45,11 @@ data class Section(
     val hasEmoji: Boolean get() = !emoji.isNullOrBlank()
 
     companion object {
-        /** Pushes to the vault task inbox. */
-        const val REMOTE_KIND_INBOX = "inbox"
+        /**
+         * Pushes to the vault task inbox. The stored value stays `"inbox"` from when this
+         * was a per-section setting — changing it would need a migration to keep already
+         * designated sections working, and nothing outside the DB reads the literal.
+         */
+        const val REMOTE_KIND_CLAUDE = "inbox"
     }
 }

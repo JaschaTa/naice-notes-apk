@@ -52,6 +52,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -62,7 +63,10 @@ import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -108,7 +112,9 @@ import com.jt.naicenotes.ui.common.ColorPickerDialog
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.SectionNameDialog
 import com.jt.naicenotes.ui.util.UiPrefs
+import com.jt.naicenotes.ui.util.formatPushedAt
 import com.jt.naicenotes.ui.util.randomSectionColor
+import com.jt.naicenotes.ui.util.rememberApp
 import com.jt.naicenotes.ui.util.rememberRepository
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -143,6 +149,7 @@ private sealed interface HomeDialog {
     data object RecolorSection : HomeDialog
     data object DeleteSection : HomeDialog
     data object ClearChecked : HomeDialog
+    data object ClearAllNotes : HomeDialog
     data class MoveItem(val item: Item) : HomeDialog
 }
 
@@ -191,6 +198,8 @@ fun HomeScreen(
 
     val selectedSection = sections.firstOrNull { it.id == selectedId }
     val accent = selectedSection?.let { Color(it.color) } ?: MaterialTheme.colorScheme.primary
+    val claudeSection = sections.firstOrNull { it.isClaudeSection }
+    val app = rememberApp()
 
     Scaffold(
         // The activity is edge-to-edge, so the window never resizes for the keyboard
@@ -243,18 +252,10 @@ fun HomeScreen(
                         onMoveDoneToBottom = {
                             scope.launch { repo.moveDoneToBottom(selectedSection.id) }
                         },
-                        onToggleInbox = {
-                            scope.launch {
-                                repo.setSectionRemoteKind(
-                                    section = selectedSection,
-                                    remoteKind = if (selectedSection.isInbox) {
-                                        null
-                                    } else {
-                                        Section.REMOTE_KIND_INBOX
-                                    },
-                                )
-                            }
+                        onMakeClaudeSection = {
+                            scope.launch { repo.designateClaudeSection(selectedSection) }
                         },
+                        onClearAllNotes = { dialog = HomeDialog.ClearAllNotes },
                         onRename = { dialog = HomeDialog.RenameSection },
                         onRecolor = { dialog = HomeDialog.RecolorSection },
                         onDelete = { dialog = HomeDialog.DeleteSection },
@@ -267,6 +268,7 @@ fun HomeScreen(
                         scope = scope,
                         modifier = Modifier.weight(1f),
                         canMove = sections.size > 1,
+                        isClaudeSection = selectedSection.isClaudeSection,
                         onMoveRequested = { dialog = HomeDialog.MoveItem(it) },
                         onItemDeleted = { deletedItem ->
                             scope.launch {
@@ -290,9 +292,29 @@ fun HomeScreen(
                     Composer(
                         section = selectedSection,
                         accent = accent,
+                        claudeSection = claudeSection,
                         onScan = { onScan(selectedSection.id) },
-                        onSubmit = { text ->
-                            scope.launch { repo.addItem(selectedSection.id, text) }
+                        onSubmit = { text, sendToClaude ->
+                            scope.launch {
+                                when {
+                                    !sendToClaude -> repo.addItem(selectedSection.id, text)
+                                    claudeSection != null -> repo.addItem(claudeSection.id, text)
+                                    // Nowhere to file the receipt, so the note is pushed
+                                    // without being stored at all.
+                                    else -> app.pushTextDirectly(text)
+                                }
+                                if (sendToClaude) {
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                    snackbarHostState.showSnackbar(
+                                        message = if (claudeSection != null) {
+                                            "Sent to Claude"
+                                        } else {
+                                            "Sent to Claude — add a Claude section to track sent notes"
+                                        },
+                                        duration = SnackbarDuration.Short,
+                                    )
+                                }
+                            }
                         },
                     )
                 }
@@ -333,6 +355,10 @@ fun HomeScreen(
             selectedSection?.let { scope.launch { repo.clearCheckedItems(it.id) } }
             dialog = null
         },
+        onClearAllNotes = {
+            selectedSection?.let { scope.launch { repo.clearSection(it.id) } }
+            dialog = null
+        },
     )
 }
 
@@ -350,7 +376,8 @@ private fun ChannelHeader(
     onScan: () -> Unit,
     onClearChecked: () -> Unit,
     onMoveDoneToBottom: () -> Unit,
-    onToggleInbox: () -> Unit,
+    onMakeClaudeSection: () -> Unit,
+    onClearAllNotes: () -> Unit,
     onRename: () -> Unit,
     onRecolor: () -> Unit,
     onDelete: () -> Unit,
@@ -402,11 +429,12 @@ private fun ChannelHeader(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (section.isInbox) {
+                if (section.isClaudeSection) {
                     Text(
-                        text = "· sends to Claude",
+                        text = "· 🤖",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics { contentDescription = "Claude section" },
                     )
                 }
             }
@@ -437,17 +465,17 @@ private fun ChannelHeader(
                     onClick = { menuOpen = false; onClearChecked() },
                 )
                 DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (section.isInbox) {
-                                "Stop sending to Claude"
-                            } else {
-                                "Send new notes to Claude"
-                            },
-                        )
-                    },
-                    onClick = { menuOpen = false; onToggleInbox() },
+                    text = { Text("Clear all notes") },
+                    onClick = { menuOpen = false; onClearAllNotes() },
                 )
+                // Only offered on sections that aren't it: designating another section moves
+                // the flag, so there's never a reason to turn it off and land at none.
+                if (!section.isClaudeSection) {
+                    DropdownMenuItem(
+                        text = { Text("Make this the Claude section") },
+                        onClick = { menuOpen = false; onMakeClaudeSection() },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Rename & icon") },
                     onClick = { menuOpen = false; onRename() },
@@ -516,19 +544,32 @@ private fun SectionRail(
     onNew: () -> Unit,
     onReorder: (List<Long>) -> Unit,
 ) {
+    // The Claude section is held out of the reorderable list entirely: it always renders
+    // last, below a divider, so its stored position never decides where it sits and a drag
+    // can't move it out of place. Everything here degrades to the old behaviour when there
+    // isn't one.
+    val (claudeSections, normalSections) = sections.partition { it.isClaudeSection }
+    val claudeIds = claudeSections.mapTo(mutableSetOf()) { it.id }
+
     val ordered = remember { mutableStateListOf<Section>() }
-    LaunchedEffect(sections) {
-        val dbIds = sections.map { it.id }
+    LaunchedEffect(normalSections) {
+        val dbIds = normalSections.map { it.id }
         val localIds = ordered.map { it.id }
-        if (dbIds != localIds || sections.size != ordered.size) {
+        if (dbIds != localIds || normalSections.size != ordered.size) {
             ordered.clear()
-            ordered.addAll(sections)
+            ordered.addAll(normalSections)
         } else {
-            sections.forEachIndexed { idx, s ->
+            normalSections.forEachIndexed { idx, s ->
                 if (ordered[idx] != s) ordered[idx] = s
             }
         }
     }
+
+    // `ordered` is populated by an effect, so for one frame after a section is designated it
+    // still holds the row `claudeSections` already claims — and two `items()` blocks emitting
+    // the same key is a hard LazyColumn crash, not a visual glitch. Filtering on the fresh ids
+    // keeps the two blocks disjoint in every frame, including that one.
+    val railSections = ordered.filter { it.id !in claudeIds }
 
     val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -550,18 +591,34 @@ private fun SectionRail(
         contentPadding = PaddingValues(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        items(ordered, key = { it.id }) { section ->
+        items(railSections, key = { it.id }) { section ->
             ReorderableItem(reorderState, key = section.id) { isDragging ->
                 RailTile(
                     section = section,
                     isActive = section.id == selectedId,
                     openCount = openCounts[section.id] ?: 0,
                     dragHandleModifier = Modifier.longPressDraggableHandle(
-                        onDragStopped = { onReorder(ordered.map { it.id }) },
+                        onDragStopped = { onReorder(railSections.map { it.id }) },
                     ),
                     onClick = { onSelect(section.id) },
                 )
             }
+        }
+        if (claudeSections.isNotEmpty() && railSections.isNotEmpty()) {
+            item("claude-divider") {
+                HorizontalDivider(
+                    color = Color.White.copy(alpha = 0.12f),
+                    modifier = Modifier.padding(vertical = 6.dp, horizontal = 14.dp),
+                )
+            }
+        }
+        items(claudeSections, key = { it.id }) { section ->
+            RailTile(
+                section = section,
+                isActive = section.id == selectedId,
+                openCount = openCounts[section.id] ?: 0,
+                onClick = { onSelect(section.id) },
+            )
         }
         item("new") { NewSectionTile(onClick = onNew) }
     }
@@ -719,6 +776,7 @@ private fun ItemsList(
     scope: kotlinx.coroutines.CoroutineScope,
     onItemDeleted: (Item) -> Unit,
     canMove: Boolean,
+    isClaudeSection: Boolean,
     onMoveRequested: (Item) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -759,13 +817,19 @@ private fun ItemsList(
                     accent = accent,
                     isDragging = isDragging,
                     canMove = canMove,
-                    dragHandleModifier = Modifier.longPressDraggableHandle(
-                        onDragStopped = {
-                            scope.launch {
-                                repo.reorderItems(orderedItems.map { it.id })
-                            }
-                        },
-                    ),
+                    isClaudeSection = isClaudeSection,
+                    // Sent notes are receipts, so they don't reorder either.
+                    dragHandleModifier = if (isClaudeSection) {
+                        Modifier
+                    } else {
+                        Modifier.longPressDraggableHandle(
+                            onDragStopped = {
+                                scope.launch {
+                                    repo.reorderItems(orderedItems.map { it.id })
+                                }
+                            },
+                        )
+                    },
                     onToggle = { scope.launch { repo.toggleItem(item) } },
                     onDelete = { onItemDeleted(item) },
                     onMove = { onMoveRequested(item) },
@@ -785,6 +849,7 @@ private fun ItemRow(
     accent: Color,
     isDragging: Boolean,
     canMove: Boolean,
+    isClaudeSection: Boolean,
     dragHandleModifier: Modifier,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
@@ -804,6 +869,9 @@ private fun ItemRow(
             if (value == SwipeToDismissBoxValue.Settled) {
                 // Always allow springing back to rest.
                 true
+            } else if (isClaudeSection) {
+                // A receipt of something already sent isn't deletable from here.
+                false
             } else {
                 val travelled = stateHolder[0]
                     ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrDefault(0f) }
@@ -876,7 +944,7 @@ private fun ItemRow(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onToggle),
+                    .then(if (isClaudeSection) Modifier else Modifier.clickable(onClick = onToggle)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (item.isChecked) {
@@ -902,6 +970,7 @@ private fun ItemRow(
                     item = item,
                     onOpen = { openLink(context, item.linkUrl) },
                     onEdit = {
+                        if (isClaudeSection) return@LinkContent
                         draft = item.text
                         editing = true
                     },
@@ -939,10 +1008,16 @@ private fun ItemRow(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 32.dp)
-                        .clickable {
-                            draft = item.text
-                            editing = true
-                        },
+                        .then(
+                            if (isClaudeSection) {
+                                Modifier
+                            } else {
+                                Modifier.clickable {
+                                    draft = item.text
+                                    editing = true
+                                }
+                            },
+                        ),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
@@ -952,10 +1027,13 @@ private fun ItemRow(
                     )
                 }
             }
-            // Delivery receipt. `pushedAt` is only ever set in a section that pushes, so
-            // this needs no knowledge of the section — and its absence is what the
-            // launch-time retry looks for, making the glyph an honest reflection of state.
-            if (item.isPushed && !editing) {
+            // Delivery receipt. In the Claude section it shows whether or not the push has
+            // landed, and is the row's only control — tapping it gives the send details,
+            // which is the one thing worth knowing about a note that already left. Elsewhere
+            // it stays the passive glyph it has always been.
+            if (isClaudeSection && !editing) {
+                SendReceipt(item = item)
+            } else if (item.isPushed && !editing) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Send,
                     contentDescription = "Sent to Claude inbox",
@@ -967,8 +1045,9 @@ private fun ItemRow(
             // Every other gesture on this row is already spoken for — tap the circle toggles,
             // tap the text edits, long-press drags, swipe deletes — so the actions hang off an
             // explicit button rather than the mockup's press-reveal bar. Same four actions,
-            // and unlike the gestures they replace, this one is visible.
-            if (!editing) {
+            // and unlike the gestures they replace, this one is visible. The Claude section
+            // has none of them: every action here edits a note, and these already left.
+            if (!editing && !isClaudeSection) {
                 Box {
                     Box(
                         modifier = Modifier
@@ -1071,6 +1150,50 @@ private fun RowScope.LinkContent(
     }
 }
 
+/**
+ * The Claude section's only control. The arrow says whether the note landed; tapping it says
+ * when. A tooltip rather than a dialog — a timestamp doesn't warrant dismissing a modal.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SendReceipt(item: Item) {
+    val tooltipState = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip {
+                Text(
+                    item.pushedAt
+                        ?.let { "Sent ${formatPushedAt(it)}" }
+                        ?: "Not sent yet — will retry",
+                )
+            }
+        },
+        state = tooltipState,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.Send,
+            contentDescription = if (item.isPushed) {
+                "Sent to Claude — tap for the time"
+            } else {
+                "Not sent yet"
+            },
+            tint = if (item.isPushed) {
+                MaterialTheme.colorScheme.outline
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .clickable { scope.launch { tooltipState.show() } }
+                .padding(8.dp),
+        )
+    }
+}
+
 @Composable
 private fun LinkThumbnail(url: String?, dim: Boolean) {
     val context = LocalContext.current
@@ -1128,16 +1251,20 @@ private fun openLink(context: android.content.Context, url: String?) {
 private fun Composer(
     section: Section,
     accent: Color,
+    claudeSection: Section?,
     onScan: () -> Unit,
-    onSubmit: (String) -> Unit,
+    onSubmit: (text: String, sendToClaude: Boolean) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    // Sticky on purpose: capturing a run of tasks for Claude shouldn't mean re-arming the
+    // toggle for every one of them.
+    var sendToClaude by rememberSaveable { mutableStateOf(false) }
     val focused = text.isNotEmpty()
 
     fun submit() {
         val trimmed = text.trim()
         if (trimmed.isNotEmpty()) {
-            onSubmit(trimmed)
+            onSubmit(trimmed, sendToClaude)
             text = ""
         }
     }
@@ -1164,10 +1291,10 @@ private fun Composer(
         ) {
             if (text.isEmpty()) {
                 Text(
-                    text = if (section.hasEmoji) {
-                        "Add to ${section.glyph} ${section.name}"
-                    } else {
-                        "Add to ${section.name}"
+                    text = when {
+                        sendToClaude -> "Send to Claude"
+                        section.hasEmoji -> "Add to ${section.glyph} ${section.name}"
+                        else -> "Add to ${section.name}"
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1208,12 +1335,37 @@ private fun Composer(
                     modifier = Modifier.size(19.dp),
                 )
             }
-            if (section.isInbox) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "New notes here go to the Claude inbox",
-                    tint = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(14.dp),
+            // Available in every section: where a note goes is decided per note, not by a
+            // setting on the section you happen to be standing in. Still offered with no
+            // Claude section configured — the note is sent either way, it just can't be
+            // kept, and the confirmation says so.
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .clickable { sendToClaude = !sendToClaude }
+                    .padding(horizontal = 7.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (sendToClaude) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Send to Claude, on",
+                        tint = accent,
+                        modifier = Modifier.size(17.dp),
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_widget_check_off),
+                        contentDescription = "Send to Claude, off",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Text(
+                    text = "Claude",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (sendToClaude) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -1272,6 +1424,7 @@ private fun HomeDialogs(
     onRecolorSection: (Int) -> Unit,
     onDeleteSection: () -> Unit,
     onClearChecked: () -> Unit,
+    onClearAllNotes: () -> Unit,
 ) {
     when (dialog) {
         HomeDialog.NewSection -> SectionNameDialog(
@@ -1315,6 +1468,15 @@ private fun HomeDialogs(
             onDismiss = onDismiss,
             onConfirm = onClearChecked,
         )
+        HomeDialog.ClearAllNotes -> selectedSection?.let {
+            ConfirmDeleteDialog(
+                title = "Clear all notes?",
+                message = "Every item in \"${it.name}\" will be permanently removed.",
+                confirmLabel = "Clear",
+                onDismiss = onDismiss,
+                onConfirm = onClearAllNotes,
+            )
+        }
         is HomeDialog.MoveItem -> MoveToSectionDialog(
             item = dialog.item,
             sections = sections.filter { it.id != dialog.item.sectionId },

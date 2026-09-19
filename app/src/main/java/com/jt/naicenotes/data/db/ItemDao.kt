@@ -122,6 +122,9 @@ interface ItemDao {
 
     @Query("DELETE FROM items WHERE sectionId = :sectionId AND isChecked = 1")
     suspend fun deleteCheckedInSection(sectionId: Long)
+
+    @Query("DELETE FROM items WHERE sectionId = :sectionId")
+    suspend fun deleteAllInSection(sectionId: Long)
 }
 
 /** One row of [ItemDao.observeOpenCounts]. */
