@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Naice Notes — Due 1: Quiet (restrained due treatment)</title>
+<style>
+  :root {
+    --rail:      #1A1D21;
+    --rail-hi:   rgba(255,255,255,0.10);
+    /* Dark, unlike the 2026-08 mockups: the shipped app is always dynamic Material You and
+       renders dark on the S24, and this round is decided entirely on muted-vs-emphasised
+       contrast — which a light frame would misrepresent. */
+    --bg:        #121316;
+    --fg:        #E4E2E6;
+    --fg-muted:  #9A9DA4;
+    --fg-faint:  #6B6E74;
+    --hairline:  rgba(255,255,255,0.10);
+    --accent:    #4CAF50;
+    --work:      #2196F3;
+    --claude:    #00897B;
+    --badge:     #E01E5A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: #2A2A2C;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone {
+    width: 412px; height: 870px;
+    background: var(--bg); color: var(--fg);
+    border-radius: 44px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; position: relative;
+  }
+
+  /* ---------- left rail ---------- */
+  .rail {
+    width: 70px; flex-shrink: 0; background: var(--rail);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 50px 0 12px;
+  }
+  .sec { position: relative; width: 100%; padding: 4px 0 6px; text-align: center; }
+  .sec .tile {
+    width: 42px; height: 42px; border-radius: 13px;
+    display: grid; place-items: center; margin: 0 auto;
+    font-size: 21px; line-height: 1; border: 1.5px solid transparent;
+  }
+  .sec .tile.letter { font-size: 16px; font-weight: 800; color: #fff; }
+  .sec.active .tile { border-color: rgba(255,255,255,0.9); border-radius: 15px; }
+  .sec.active::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 14px;
+    width: 3px; border-radius: 0 3px 3px 0; background: #fff;
+  }
+  .sec .lbl {
+    font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.5); margin-top: 4px;
+  }
+  .sec.active .lbl { color: #fff; }
+  .badge {
+    position: absolute; top: 0; right: 11px;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px; background: var(--badge); color: #fff;
+    font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+    border: 2px solid var(--rail);
+  }
+  .rail-split { width: 42px; height: 1px; background: rgba(255,255,255,0.12); margin: 6px 0; }
+  .rail-add {
+    width: 42px; height: 42px; border-radius: 13px; margin-top: 6px;
+    background: var(--rail-hi); color: rgba(255,255,255,0.65);
+    display: grid; place-items: center; font-size: 23px; font-weight: 300;
+  }
+
+  /* ---------- content ---------- */
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .statusbar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px 0 16px; font-size: 13px; font-weight: 600; color: var(--fg);
+  }
+  .statusbar .sig { display: flex; gap: 3px; align-items: flex-end; opacity: 0.75; }
+  .statusbar .sig i { display: block; width: 3px; background: currentColor; border-radius: 1px; }
+
+  .chan-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 12px 9px 12px; border-bottom: 1px solid var(--hairline);
+  }
+  .chan-tile {
+    width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 19px;
+    background: rgba(76,175,80,0.22);
+  }
+  .chan-text { flex: 1; min-width: 0; }
+  .chan-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+  .chan-meta {
+    display: flex; align-items: center; gap: 6px; margin-top: 2px;
+    font-size: 12.5px; color: var(--fg-muted);
+  }
+  .chan-meta .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .head-ic { color: var(--fg-muted); display: grid; place-items: center; }
+  .head-ic svg { width: 19px; height: 19px; }
+
+  /* ---------- list ---------- */
+  .items { flex: 1; overflow: hidden; padding: 2px 0 4px; }
+  .row {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px 6px 14px; min-height: 40px;
+  }
+  .check {
+    width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0;
+    border: 1.8px solid #6B6E74;
+  }
+  .row.done .check {
+    background: var(--accent); border-color: var(--accent);
+    display: grid; place-items: center;
+  }
+  .row.done .check::after {
+    content: ""; width: 9px; height: 5px;
+    border-left: 2px solid #121316; border-bottom: 2px solid #121316;
+    transform: rotate(-45deg) translate(1px,-1px);
+  }
+  .txt { font-size: 15.5px; line-height: 1.35; font-weight: 400; flex: 1; }
+  .row.done .txt { color: var(--fg-faint); text-decoration: line-through; }
+  .kebab { width: 22px; color: var(--fg-faint); text-align: center; font-size: 17px; line-height: 1; }
+
+  /* the whole point: the due glyph, restrained */
+  .glyph { font-size: 14px; line-height: 1; opacity: 0.95; }
+
+  /* QUIET due treatment: colour on the glyph only, text unchanged weight */
+  .row.due .txt { color: #fff; }
+  .row.due .glyph { filter: none; }
+
+  /* undue block */
+  .undue-divider {
+    display: flex; align-items: center; margin: 14px 14px 4px 14px;
+    border-top: 1px solid var(--hairline); position: relative;
+  }
+  .undue-divider span {
+    position: absolute; left: 0; top: -8px; background: var(--bg);
+    padding-right: 8px; font-size: 10.5px; font-weight: 800;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--fg-faint);
+  }
+  .row.undue .txt { color: var(--fg-faint); }
+  .row.undue .check { border-color: #3E4146; }
+  .row.undue .glyph { opacity: 0.55; }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { padding: 6px 10px 0 10px; }
+  .composer {
+    border: 1.5px solid rgba(255,255,255,0.16); border-radius: 14px; overflow: hidden;
+  }
+  .composer .field { padding: 11px 14px 3px; font-size: 15.5px; color: var(--fg-faint); }
+  .composer .bar { display: flex; align-items: center; gap: 2px; padding: 2px 6px 6px; }
+  .tool { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--fg-muted); }
+  .tool svg { width: 19px; height: 19px; }
+  .claudebox {
+    display: flex; align-items: center; gap: 5px; padding: 6px 7px;
+    border-radius: 9px; color: var(--fg-muted); font-size: 13.5px; font-weight: 600;
+  }
+  .claudebox .ring { width: 17px; height: 17px; border-radius: 50%; border: 1.8px solid #6B6E74; }
+  .bar .grow { flex: 1; }
+  .send {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(255,255,255,0.10); color: var(--fg-faint);
+    display: grid; place-items: center;
+  }
+  .send svg { width: 17px; height: 17px; }
+
+  .home-indicator {
+    position: absolute; bottom: 9px; left: calc(50% + 35px);
+    transform: translateX(-50%); width: 128px; height: 5px;
+    background: #fff; opacity: 0.35; border-radius: 3px;
+  }
+  .safe { height: 26px; }
+
+  .caption {
+    color: rgba(255,255,255,0.75); font-size: 12.5px; line-height: 1.6;
+    margin-top: 18px; max-width: 412px; font-family: ui-monospace, monospace;
+  }
+  .caption b { color: #fff; }
+  .caption code { color: #FFD9A0; }
+  .caption .warn { color: #FFB4A0; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- ============ RAIL ============ -->
+  <div class="rail">
+    <div class="sec active">
+      <div class="tile" style="background:rgba(76,175,80,0.22)">🛒</div>
+      <div class="lbl">Shopping</div>
+      <div class="badge">3</div>
+    </div>
+    <div class="sec">
+      <div class="tile" style="background:rgba(33,150,243,0.22)">💼</div>
+      <div class="lbl">Work</div>
+      <div class="badge">7</div>
+    </div>
+    <div class="sec">
+      <div class="tile letter" style="background:#E5533D">E</div>
+      <div class="lbl">einkauf</div>
+    </div>
+
+    <!-- Claude section: pinned last behind a divider (shipped) -->
+    <div class="rail-split"></div>
+    <div class="sec">
+      <div class="tile" style="background:rgba(0,137,123,0.30)">💼</div>
+      <div class="lbl">claude</div>
+      <div class="badge">2</div>
+    </div>
+
+    <div class="rail-add">+</div>
+  </div>
+
+  <!-- ============ CONTENT ============ -->
+  <div class="content">
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="sig"><i style="height:5px"></i><i style="height:7px"></i><i style="height:9px"></i><i style="height:11px"></i></span>
+    </div>
+
+    <div class="chan-head">
+      <div class="chan-tile">🛒</div>
+      <div class="chan-text">
+        <div class="chan-title">Shopping</div>
+        <!-- 3 open, NOT 5: the two undue rows are excluded from the count -->
+        <div class="chan-meta"><span class="dot"></span> 3 open</div>
+      </div>
+      <div class="head-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+        </svg>
+      </div>
+      <div class="head-ic" style="font-size:19px; width:22px">⋮</div>
+    </div>
+
+    <div class="items">
+      <div class="row"><div class="check"></div><div class="txt">olive oil</div><div class="kebab">⋮</div></div>
+
+      <!-- CAME DUE — quiet: glyph only, text lifted to full white -->
+      <div class="row due">
+        <div class="check"></div>
+        <div class="txt">renew contents insurance</div>
+        <div class="glyph">⏰</div>
+        <div class="kebab">⋮</div>
+      </div>
+
+      <div class="row"><div class="check"></div><div class="txt">fresh basil leaves</div><div class="kebab">⋮</div></div>
+
+      <!-- CAME DUE, recurring -->
+      <div class="row due">
+        <div class="check"></div>
+        <div class="txt">water the balcony plants</div>
+        <div class="glyph">🔁</div>
+        <div class="kebab">⋮</div>
+      </div>
+
+      <div class="row done"><div class="check"></div><div class="txt">2 cups flour</div><div class="kebab">⋮</div></div>
+
+      <!-- ============ UNDUE BLOCK ============ -->
+      <div class="undue-divider"><span>Not due yet</span></div>
+
+      <div class="row undue">
+        <div class="check"></div>
+        <div class="txt">book the winter service</div>
+        <div class="glyph">⏳</div>
+        <div class="kebab">⋮</div>
+      </div>
+      <div class="row undue">
+        <div class="check"></div>
+        <div class="txt">descale the coffee machine</div>
+        <div class="glyph">⏳</div>
+        <div class="kebab">⋮</div>
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="field">Add to 🛒 Shopping</div>
+        <div class="bar">
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+          <!-- NEW: schedule button, idle -->
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+            </svg>
+          </div>
+          <div class="claudebox"><span class="ring"></span> Claude</div>
+          <div class="grow"></div>
+          <div class="send">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l19-8L3 4v6l13 2-13 2z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="safe"></div>
+  </div>
+
+  <div class="home-indicator"></div>
+</div>
+
+<div class="caption">
+<b>Due 1 · Quiet</b> — the minimum that still reads. An undue task keeps its row but drops to
+<code>--fg-faint</code> with a dimmed circle, under a hairline labelled <b>Not due yet</b>. Coming due does
+two things only: the text returns to full white and the glyph goes from ⏳ to ⏰ (🔁 when it repeats). No
+pills, no bars, no colour.<br><br>
+<b>The bet:</b> on a list you scan daily, a row going from grey to white is already a change you notice,
+and the app has no other loud state to compete with. If that turns out too subtle to catch after two
+weeks away, <b>Due 2</b> is the answer.<br><br>
+<b>Glyph slot is free:</b> it's the same trailing position the Claude section already uses for its send
+arrow, and the two never collide — a Claude row is a receipt with no schedule, a scheduled row is never in
+the Claude section.<br><br>
+<b class="warn">Cost of the schedule:</b> <code>Item</code> has no time fields, so this is a <b>6 → 7</b>
+migration — <code>dueAt INTEGER</code> and <code>repeatWeeks INTEGER</code>, both nullable, no backfill.
+Back up <code>.db</code> + <code>-wal</code> + <code>-shm</code> first; <code>fallbackToDestructiveMigration</code>
+is off on purpose. Ordering needed <b>no SQL change</b>: <code>observeBySection</code>
+and <code>listBySection</code> stay byte-identical and the split happens in Kotlin, so the widget can't
+drift from the app. <i>(Built: an earlier draft of this caption called for a leading sort key with a
+<code>:now</code> parameter — that would have frozen the Flow at the instant it was created.)</i><br><br>
+<b class="warn">Two definitions of "open":</b> the rail badge comes from
+<code>observeOpenCounts</code>, but the widget counts its own caption locally in
+<code>ClassicWidgetRenderer</code>. Excluding undue rows means editing both. The header above says
+<b>3 open</b>, not 5.<br><br>
+<b class="warn">Nothing in this app runs on a timer.</b> Due-ness is evaluated when the list is composed,
+so the app is right every time you open it — but the widget has <code>updatePeriodMillis="0"</code> and
+only redraws on a write, so a task that comes due overnight won't surface there until something else
+happens. Re-rendering on app resume covers the realistic case; a punctual widget needs AlarmManager.
+</div>
+</body>
+</html>

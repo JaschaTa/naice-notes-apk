@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,6 +54,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.RichTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -63,6 +65,7 @@ import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -81,10 +84,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -99,6 +105,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -108,13 +115,21 @@ import com.jt.naicenotes.R
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.UserAgents
+import com.jt.naicenotes.data.util.SectionCounts
+import com.jt.naicenotes.data.util.countsBySection
 import com.jt.naicenotes.ui.common.ColorPickerDialog
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
+import com.jt.naicenotes.ui.common.PendingSchedule
+import com.jt.naicenotes.ui.common.ScheduleDialog
 import com.jt.naicenotes.ui.common.SectionNameDialog
 import com.jt.naicenotes.ui.util.UiPrefs
+import com.jt.naicenotes.ui.util.formatDueDate
+import com.jt.naicenotes.ui.util.formatDueRelative
 import com.jt.naicenotes.ui.util.formatPushedAt
 import com.jt.naicenotes.ui.util.randomSectionColor
 import com.jt.naicenotes.ui.util.rememberApp
+import com.jt.naicenotes.ui.util.rememberNow
+import com.jt.naicenotes.ui.util.reorderWithin
 import com.jt.naicenotes.ui.util.rememberRepository
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -143,6 +158,19 @@ private val RAIL_BACKGROUND = Color(0xFF1A1D21)
 /** Unread-style badge on a rail tile. Fixed, not from the scheme — it must never read as a section colour. */
 private val BADGE_COLOR = Color(0xFFE01E5A)
 
+/**
+ * "This came due". Fixed for the same reason the badge is, and more so: due-ness has to mean
+ * the same thing in every section, and the nine section colours would make it read as
+ * "Shopping" instead.
+ */
+private val DUE_COLOR = Color(0xFFFFB300)
+
+/** A schedule is armed on the composer. One colour for "on", whatever the section's own is. */
+private val ARMED_COLOR = Color(0xFF4CAF50)
+
+/** Leading bar on a due row, drawn rather than laid out so it can't shift the content. */
+private val DUE_BAR_WIDTH = 3.dp
+
 private sealed interface HomeDialog {
     data object NewSection : HomeDialog
     data object RenameSection : HomeDialog
@@ -151,6 +179,7 @@ private sealed interface HomeDialog {
     data object ClearChecked : HomeDialog
     data object ClearAllNotes : HomeDialog
     data class MoveItem(val item: Item) : HomeDialog
+    data class EditTimer(val item: Item) : HomeDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -166,8 +195,13 @@ fun HomeScreen(
     var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
     var dialog by remember { mutableStateOf<HomeDialog?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val openCounts by remember(repo) { repo.observeOpenCounts() }
-        .collectAsStateWithLifecycle(initialValue = emptyMap())
+    val openBuckets by remember(repo) { repo.observeOpenBuckets() }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    // One clock for the whole screen: the list partition, the badges and the header all have
+    // to agree on what "now" is, or a row can be below the divider while the count says it
+    // isn't.
+    val now by rememberNow()
+    val counts = countsBySection(openBuckets, now)
 
     // Collapsing the rail hands its 70dp back to the list — worth it while reading or writing
     // long items. Persisted, because it's a preference rather than a transient mode.
@@ -230,7 +264,7 @@ fun HomeScreen(
                         width = railWidth,
                         sections = sections,
                         selectedId = selectedSection.id,
-                        openCounts = openCounts,
+                        counts = counts,
                         onSelect = { selectedId = it },
                         onNew = { dialog = HomeDialog.NewSection },
                         onReorder = { newOrder ->
@@ -241,7 +275,7 @@ fun HomeScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     ChannelHeader(
                         section = selectedSection,
-                        openCount = openCounts[selectedSection.id] ?: 0,
+                        counts = counts[selectedSection.id] ?: SectionCounts(open = 0, due = 0),
                         accent = accent,
                         railCollapsed = railCollapsed,
                         onToggleRail = {
@@ -269,7 +303,9 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         canMove = sections.size > 1,
                         isClaudeSection = selectedSection.isClaudeSection,
+                        now = now,
                         onMoveRequested = { dialog = HomeDialog.MoveItem(it) },
+                        onEditTimerRequested = { dialog = HomeDialog.EditTimer(it) },
                         onItemDeleted = { deletedItem ->
                             scope.launch {
                                 repo.deleteItem(deletedItem)
@@ -293,11 +329,17 @@ fun HomeScreen(
                         section = selectedSection,
                         accent = accent,
                         claudeSection = claudeSection,
+                        now = now,
                         onScan = { onScan(selectedSection.id) },
-                        onSubmit = { text, sendToClaude ->
+                        onSubmit = { text, sendToClaude, schedule ->
                             scope.launch {
                                 when {
-                                    !sendToClaude -> repo.addItem(selectedSection.id, text)
+                                    !sendToClaude -> repo.addItem(
+                                        sectionId = selectedSection.id,
+                                        text = text,
+                                        dueAt = schedule.dueAt,
+                                        repeatWeeks = schedule.repeatWeeks,
+                                    )
                                     claudeSection != null -> repo.addItem(claudeSection.id, text)
                                     // Nowhere to file the receipt, so the note is pushed
                                     // without being stored at all.
@@ -331,6 +373,11 @@ fun HomeScreen(
             scope.launch { repo.moveItemToSection(item, targetId) }
             dialog = null
         },
+        onSetTimer = { item, schedule ->
+            scope.launch { repo.setSchedule(item, schedule.dueAt, schedule.repeatWeeks) }
+            dialog = null
+        },
+        now = now,
         onCreateSection = { name, emoji ->
             scope.launch {
                 val color = randomSectionColor()
@@ -369,7 +416,7 @@ fun HomeScreen(
 @Composable
 private fun ChannelHeader(
     section: Section,
-    openCount: Int,
+    counts: SectionCounts,
     accent: Color,
     railCollapsed: Boolean,
     onToggleRail: () -> Unit,
@@ -425,10 +472,18 @@ private fun ChannelHeader(
                         .background(accent),
                 )
                 Text(
-                    text = "$openCount open",
+                    text = "${counts.open} open",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (counts.due > 0) {
+                    Text(
+                        text = "· ${counts.due} due",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = DUE_COLOR,
+                    )
+                }
                 if (section.isClaudeSection) {
                     Text(
                         text = "· 🤖",
@@ -539,7 +594,7 @@ private fun SectionRail(
     width: Dp,
     sections: List<Section>,
     selectedId: Long,
-    openCounts: Map<Long, Int>,
+    counts: Map<Long, SectionCounts>,
     onSelect: (Long) -> Unit,
     onNew: () -> Unit,
     onReorder: (List<Long>) -> Unit,
@@ -596,7 +651,7 @@ private fun SectionRail(
                 RailTile(
                     section = section,
                     isActive = section.id == selectedId,
-                    openCount = openCounts[section.id] ?: 0,
+                    counts = counts[section.id] ?: SectionCounts(open = 0, due = 0),
                     dragHandleModifier = Modifier.longPressDraggableHandle(
                         onDragStopped = { onReorder(railSections.map { it.id }) },
                     ),
@@ -616,7 +671,7 @@ private fun SectionRail(
             RailTile(
                 section = section,
                 isActive = section.id == selectedId,
-                openCount = openCounts[section.id] ?: 0,
+                counts = counts[section.id] ?: SectionCounts(open = 0, due = 0),
                 onClick = { onSelect(section.id) },
             )
         }
@@ -636,7 +691,7 @@ private fun SectionRail(
 private fun RailTile(
     section: Section,
     isActive: Boolean,
-    openCount: Int,
+    counts: SectionCounts,
     dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -691,7 +746,7 @@ private fun RailTile(
                     )
                 }
 
-                if (openCount > 0) {
+                if (counts.open > 0) {
                     Box(
                         modifier = Modifier
                             .offset(x = 4.dp, y = (-4).dp)
@@ -707,13 +762,16 @@ private fun RailTile(
                                 .heightIn(min = 14.dp)
                                 .widthIn(min = 14.dp)
                                 .clip(CircleShape)
-                                .background(BADGE_COLOR)
+                                // Amber wins over the normal badge colour: something in
+                                // here is owed, which is worth seeing from a section you
+                                // aren't looking at.
+                                .background(if (counts.due > 0) DUE_COLOR else BADGE_COLOR)
                                 .padding(horizontal = 4.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = if (openCount > 99) "99+" else "$openCount",
-                                color = Color.White,
+                                text = if (counts.open > 99) "99+" else "${counts.open}",
+                                color = if (counts.due > 0) Color.Black else Color.White,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 9.sp,
@@ -777,7 +835,9 @@ private fun ItemsList(
     onItemDeleted: (Item) -> Unit,
     canMove: Boolean,
     isClaudeSection: Boolean,
+    now: Long,
     onMoveRequested: (Item) -> Unit,
+    onEditTimerRequested: (Item) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dbItems by remember(sectionId) { repo.observeItems(sectionId) }
@@ -800,9 +860,18 @@ private fun ItemsList(
         }
     }
 
+    // Two blocks from one list and one clock, so they can't disagree: every row lands in
+    // exactly one of them. The rail learned this the hard way — two independently sourced
+    // lists can hold the same id for a frame, and a LazyColumn treats that as fatal.
+    val (active, waiting) = orderedItems.partition { !it.isWaiting(now) }
+
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        orderedItems.add(to.index, orderedItems.removeAt(from.index))
+        // Indices are rendered positions; the list being mutated is in stored order with
+        // waiting rows interleaved, so they have to be matched by id.
+        reorderWithin(orderedItems, active, from.index, to.index)?.let { (fromIndex, toIndex) ->
+            orderedItems.add(toIndex, orderedItems.removeAt(fromIndex))
+        }
     }
 
     // The open/done counts moved to the channel header, so the list is now the whole surface.
@@ -810,11 +879,12 @@ private fun ItemsList(
         state = lazyListState,
         modifier = modifier,
     ) {
-        items(orderedItems, key = { it.id }) { item ->
+        items(active, key = { it.id }) { item ->
             ReorderableItem(reorderableState, key = item.id) { isDragging ->
                 ItemRow(
                     item = item,
                     accent = accent,
+                    now = now,
                     isDragging = isDragging,
                     canMove = canMove,
                     isClaudeSection = isClaudeSection,
@@ -825,7 +895,12 @@ private fun ItemsList(
                         Modifier.longPressDraggableHandle(
                             onDragStopped = {
                                 scope.launch {
-                                    repo.reorderItems(orderedItems.map { it.id })
+                                    // Only the active ids: `reorderItems` renumbers exactly
+                                    // what it's handed, so waiting rows keep their positions
+                                    // and a drag can't reshuffle the block below the divider.
+                                    repo.reorderItems(
+                                        orderedItems.filterNot { it.isWaiting(now) }.map { it.id },
+                                    )
                                 }
                             },
                         )
@@ -833,12 +908,76 @@ private fun ItemsList(
                     onToggle = { scope.launch { repo.toggleItem(item) } },
                     onDelete = { onItemDeleted(item) },
                     onMove = { onMoveRequested(item) },
+                    onEditTimer = { onEditTimerRequested(item) },
+                    onRemoveDue = { scope.launch { repo.setSchedule(item, null, null) } },
+                    onResetTimer = { scope.launch { repo.resetTimer(item, now) } },
+                    onMakeActiveNow = {
+                        scope.launch { repo.setSchedule(item, now, item.repeatWeeks) }
+                    },
                     onSaveText = { newText ->
                         scope.launch { repo.updateItemText(item, newText) }
                     },
                 )
             }
         }
+
+        if (waiting.isNotEmpty()) {
+            // A String key can't collide with the Long ids around it.
+            item("not-due-divider") { NotDueDivider(count = waiting.size) }
+        }
+
+        items(waiting, key = { it.id }) { item ->
+            ItemRow(
+                item = item,
+                accent = accent,
+                now = now,
+                isDragging = false,
+                canMove = canMove,
+                isClaudeSection = isClaudeSection,
+                // Nothing to order down here: the block is sorted by when things come due.
+                dragHandleModifier = Modifier,
+                onToggle = { scope.launch { repo.toggleItem(item) } },
+                onDelete = { onItemDeleted(item) },
+                onMove = { onMoveRequested(item) },
+                onEditTimer = { onEditTimerRequested(item) },
+                onRemoveDue = { scope.launch { repo.setSchedule(item, null, null) } },
+                onResetTimer = { scope.launch { repo.resetTimer(item, now) } },
+                onMakeActiveNow = {
+                    scope.launch { repo.setSchedule(item, now, item.repeatWeeks) }
+                },
+                onSaveText = { newText ->
+                    scope.launch { repo.updateItemText(item, newText) }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotDueDivider(count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 12.dp, top = 14.dp, bottom = 4.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "NOT DUE YET",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.07.em,
+            ),
+            color = MaterialTheme.colorScheme.outline,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.outline,
+        )
     }
 }
 
@@ -847,6 +986,7 @@ private fun ItemsList(
 private fun ItemRow(
     item: Item,
     accent: Color,
+    now: Long,
     isDragging: Boolean,
     canMove: Boolean,
     isClaudeSection: Boolean,
@@ -854,8 +994,14 @@ private fun ItemRow(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onMove: () -> Unit,
+    onEditTimer: () -> Unit,
+    onRemoveDue: () -> Unit,
+    onResetTimer: () -> Unit,
+    onMakeActiveNow: () -> Unit,
     onSaveText: (String) -> Unit,
 ) {
+    val isDue = item.isDue(now)
+    val isWaiting = item.isWaiting(now)
     // Material settles a swipe on fling velocity as well as distance, so a quick
     // flick dismisses however short it was — the accidental-delete case. Material3
     // 1.4 exposes no velocity knob, so gate on how far the finger actually travelled
@@ -886,8 +1032,13 @@ private fun ItemRow(
     )
     stateHolder[0] = dismissState
 
-    val bg = if (isDragging) MaterialTheme.colorScheme.surfaceContainerHigh
-        else MaterialTheme.colorScheme.surface
+    val bg = when {
+        isDragging -> MaterialTheme.colorScheme.surfaceContainerHigh
+        // Amber wash rather than the section accent: due has to mean the same thing in
+        // every section, and nine saturated accents would make it read as the section.
+        isDue -> DUE_COLOR.copy(alpha = 0.07f).compositeOver(MaterialTheme.colorScheme.surface)
+        else -> MaterialTheme.colorScheme.surface
+    }
 
     var editing by rememberSaveable(item.id) { mutableStateOf(false) }
     var actionsOpen by remember(item.id) { mutableStateOf(false) }
@@ -908,7 +1059,14 @@ private fun ItemRow(
 
     val textStyle = MaterialTheme.typography.bodyLarge.copy(
         textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
-        color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+        fontWeight = if (isDue && !item.isChecked) FontWeight.SemiBold else null,
+        color = when {
+            item.isChecked -> MaterialTheme.colorScheme.onSurfaceVariant
+            // Waiting rows read as present-but-inert; it's the one state where the text
+            // itself is the signal, since there's no bar or wash down there.
+            isWaiting -> MaterialTheme.colorScheme.outline
+            else -> MaterialTheme.colorScheme.onSurface
+        },
     )
 
     SwipeToDismissBox(
@@ -934,6 +1092,14 @@ private fun ItemRow(
             modifier = dragHandleModifier
                 .fillMaxWidth()
                 .background(bg)
+                .drawBehind {
+                    if (isDue) {
+                        drawRect(
+                            color = DUE_COLOR,
+                            size = Size(DUE_BAR_WIDTH.toPx(), size.height),
+                        )
+                    }
+                }
                 .padding(horizontal = 16.dp, vertical = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1027,6 +1193,16 @@ private fun ItemRow(
                     )
                 }
             }
+            if (item.isScheduled && !editing) {
+                ScheduleBadge(
+                    item = item,
+                    now = now,
+                    onRemoveDue = onRemoveDue,
+                    onResetTimer = onResetTimer,
+                    onMakeActiveNow = onMakeActiveNow,
+                )
+            }
+
             // Delivery receipt. In the Claude section it shows whether or not the push has
             // landed, and is the row's only control — tapping it gives the send details,
             // which is the one thing worth knowing about a note that already left. Elsewhere
@@ -1078,6 +1254,12 @@ private fun ItemRow(
                                 draft = item.text
                                 editing = true
                             },
+                        )
+                        // The composer can only schedule a note as it's written; this is how
+                        // one already on the list gets a timer, changes it, or loses it.
+                        DropdownMenuItem(
+                            text = { Text(if (item.isScheduled) "Edit timer" else "Add timer") },
+                            onClick = { actionsOpen = false; onEditTimer() },
                         )
                         if (item.isLink) {
                             DropdownMenuItem(
@@ -1151,6 +1333,83 @@ private fun RowScope.LinkContent(
 }
 
 /**
+ * A scheduled note's glyph, and the one action that makes sense for the state it's in.
+ *
+ * Deliberately one action each rather than a menu: there is no un-recur, because a repeating
+ * note that you want to stop repeating is a note you want gone. Delete already lives in the
+ * row's ⋮ menu and isn't duplicated here.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScheduleBadge(
+    item: Item,
+    now: Long,
+    onRemoveDue: () -> Unit,
+    onResetTimer: () -> Unit,
+    onMakeActiveNow: () -> Unit,
+) {
+    val tooltipState = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+    val waiting = item.isWaiting(now)
+
+    val glyph = when {
+        waiting -> "⏳"
+        item.isRecurring -> "🔁"
+        else -> "⏰"
+    }
+
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        state = tooltipState,
+        hasAction = true,
+        tooltip = {
+            RichTooltip(
+                title = {
+                    Text(item.dueAt?.let { "Due ${formatDueRelative(it, now)}" } ?: "Repeating")
+                },
+                action = {
+                    val (label, act) = when {
+                        waiting -> "Make active now" to onMakeActiveNow
+                        item.isRecurring -> "Reset timer" to onResetTimer
+                        else -> "Remove due" to onRemoveDue
+                    }
+                    TextButton(
+                        onClick = { tooltipState.dismiss(); act() },
+                    ) { Text(label) }
+                },
+            ) {
+                Text(
+                    buildString {
+                        item.dueAt?.let { append(formatDueDate(it)) }
+                        item.repeatWeeks?.let {
+                            if (isNotEmpty()) append(" · ")
+                            append(if (it == 1) "repeats weekly" else "repeats every $it weeks")
+                        }
+                    },
+                )
+            }
+        },
+    ) {
+        Text(
+            text = glyph,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier
+                .clip(CircleShape)
+                .then(
+                    if (item.isDue(now)) {
+                        Modifier.background(DUE_COLOR.copy(alpha = 0.20f))
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable { scope.launch { tooltipState.show() } }
+                .padding(5.dp)
+                .semantics { contentDescription = "Schedule — tap for details" },
+        )
+    }
+}
+
+/**
  * The Claude section's only control. The arrow says whether the note landed; tapping it says
  * when. A tooltip rather than a dialog — a timestamp doesn't warrant dismissing a modal.
  */
@@ -1161,7 +1420,7 @@ private fun SendReceipt(item: Item) {
     val scope = rememberCoroutineScope()
 
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = {
             PlainTooltip {
                 Text(
@@ -1252,21 +1511,36 @@ private fun Composer(
     section: Section,
     accent: Color,
     claudeSection: Section?,
+    now: Long,
     onScan: () -> Unit,
-    onSubmit: (text: String, sendToClaude: Boolean) -> Unit,
+    onSubmit: (text: String, sendToClaude: Boolean, schedule: PendingSchedule) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     // Sticky on purpose: capturing a run of tasks for Claude shouldn't mean re-arming the
     // toggle for every one of them.
     var sendToClaude by rememberSaveable { mutableStateOf(false) }
+    // Not sticky, unlike the Claude checkbox: a due date belongs to one note, and inheriting
+    // it silently is a bug you don't notice until the evidence is below a divider.
+    var schedule by remember { mutableStateOf(PendingSchedule()) }
+    var schedulingOpen by remember { mutableStateOf(false) }
     val focused = text.isNotEmpty()
 
     fun submit() {
         val trimmed = text.trim()
         if (trimmed.isNotEmpty()) {
-            onSubmit(trimmed, sendToClaude)
+            onSubmit(trimmed, sendToClaude, schedule)
             text = ""
+            schedule = PendingSchedule()
         }
+    }
+
+    if (schedulingOpen) {
+        ScheduleDialog(
+            initial = schedule,
+            now = now,
+            onDismiss = { schedulingOpen = false },
+            onConfirm = { schedule = it; schedulingOpen = false },
+        )
     }
 
     Column(
@@ -1293,6 +1567,7 @@ private fun Composer(
                 Text(
                     text = when {
                         sendToClaude -> "Send to Claude"
+                        schedule.isArmed -> "Add to ${section.name}, scheduled"
                         section.hasEmoji -> "Add to ${section.glyph} ${section.name}"
                         else -> "Add to ${section.name}"
                     },
@@ -1335,6 +1610,39 @@ private fun Composer(
                     modifier = Modifier.size(19.dp),
                 )
             }
+            // A note that leaves for Claude never comes back, so there's nothing here for a
+            // due date to attach to: whichever of the two is armed puts the other out of reach.
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .then(
+                        if (schedule.isArmed) {
+                            Modifier.background(ARMED_COLOR.copy(alpha = 0.18f))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .then(
+                        if (sendToClaude) Modifier else Modifier.clickable { schedulingOpen = true },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.DateRange,
+                    contentDescription = when {
+                        sendToClaude -> "Schedule unavailable while sending to Claude"
+                        schedule.isArmed -> "Scheduled — tap to change"
+                        else -> "Schedule this note"
+                    },
+                    tint = when {
+                        sendToClaude -> MaterialTheme.colorScheme.outlineVariant
+                        schedule.isArmed -> ARMED_COLOR
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(19.dp),
+                )
+            }
             // Available in every section: where a note goes is decided per note, not by a
             // setting on the section you happen to be standing in. Still offered with no
             // Claude section configured — the note is sent either way, it just can't be
@@ -1342,7 +1650,13 @@ private fun Composer(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(9.dp))
-                    .clickable { sendToClaude = !sendToClaude }
+                    .then(
+                        if (schedule.isArmed) {
+                            Modifier
+                        } else {
+                            Modifier.clickable { sendToClaude = !sendToClaude }
+                        },
+                    )
                     .padding(horizontal = 7.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1357,15 +1671,27 @@ private fun Composer(
                 } else {
                     Icon(
                         painter = painterResource(R.drawable.ic_widget_check_off),
-                        contentDescription = "Send to Claude, off",
-                        tint = MaterialTheme.colorScheme.outline,
+                        contentDescription = if (schedule.isArmed) {
+                            "Send to Claude unavailable while scheduled"
+                        } else {
+                            "Send to Claude, off"
+                        },
+                        tint = if (schedule.isArmed) {
+                            MaterialTheme.colorScheme.outlineVariant
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
                         modifier = Modifier.size(17.dp),
                     )
                 }
                 Text(
                     text = "Claude",
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (sendToClaude) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = when {
+                        sendToClaude -> accent
+                        schedule.isArmed -> MaterialTheme.colorScheme.outlineVariant
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -1419,6 +1745,8 @@ private fun HomeDialogs(
     sections: List<Section>,
     onDismiss: () -> Unit,
     onMoveItem: (Item, Long) -> Unit,
+    onSetTimer: (Item, PendingSchedule) -> Unit,
+    now: Long,
     onCreateSection: (String, String?) -> Unit,
     onRenameSection: (String, String?) -> Unit,
     onRecolorSection: (Int) -> Unit,
@@ -1482,6 +1810,12 @@ private fun HomeDialogs(
             sections = sections.filter { it.id != dialog.item.sectionId },
             onDismiss = onDismiss,
             onConfirm = { targetId -> onMoveItem(dialog.item, targetId) },
+        )
+        is HomeDialog.EditTimer -> ScheduleDialog(
+            initial = PendingSchedule(dialog.item.dueAt, dialog.item.repeatWeeks),
+            now = now,
+            onDismiss = onDismiss,
+            onConfirm = { onSetTimer(dialog.item, it) },
         )
         null -> Unit
     }

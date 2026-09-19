@@ -68,10 +68,15 @@ object ClassicWidgetRenderer {
         val sections = app.repository.observeSections().first()
         val selectedId = WidgetPrefs.getSelectedId(context)
         val active = sections.firstOrNull { it.id == selectedId } ?: sections.firstOrNull()
-        val items = active?.let { app.repository.listItems(it.id) } ?: emptyList()
+        // Split here rather than in the two places downstream: `buildRemoteViews` uses this
+        // one list for both the rows and the open/done caption, so a note that isn't due yet
+        // stays out of the widget entirely without either of them knowing.
+        val now = System.currentTimeMillis()
+        val all = active?.let { app.repository.listItems(it.id) } ?: emptyList()
+        val (waiting, items) = all.partition { it.isWaiting(now) }
 
         ids.forEach { id ->
-            val rv = buildRemoteViews(context, sections, active, items, id)
+            val rv = buildRemoteViews(context, sections, active, items, waiting.size, id)
             mgr.updateAppWidget(id, rv)
         }
     }
@@ -81,6 +86,7 @@ object ClassicWidgetRenderer {
         sections: List<Section>,
         active: Section?,
         items: List<Item>,
+        waitingCount: Int,
         appWidgetId: Int,
     ): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.widget_main)
@@ -169,7 +175,16 @@ object ClassicWidgetRenderer {
         } else if (items.isEmpty()) {
             rv.setViewVisibility(R.id.items_list, View.GONE)
             rv.setViewVisibility(R.id.empty_state, View.VISIBLE)
-            rv.setTextViewText(R.id.empty_state, "No items in ${active.name}")
+            rv.setTextViewText(
+                R.id.empty_state,
+                // A section holding only not-yet-due notes isn't empty, and saying so sends
+                // you into the app to look for what you already filed.
+                if (waitingCount > 0) {
+                    "Nothing due in ${active.name}"
+                } else {
+                    "No items in ${active.name}"
+                },
+            )
         } else {
             rv.setViewVisibility(R.id.empty_state, View.GONE)
             rv.setViewVisibility(R.id.items_list, View.VISIBLE)

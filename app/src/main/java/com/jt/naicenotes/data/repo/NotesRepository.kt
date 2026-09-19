@@ -1,11 +1,12 @@
 package com.jt.naicenotes.data.repo
 
 import com.jt.naicenotes.data.db.AppDatabase
+import com.jt.naicenotes.data.db.SectionDueBucket
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.LinkDetector
+import com.jt.naicenotes.data.util.nextDueAt
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
 class NotesRepository(
     private val db: AppDatabase,
@@ -31,9 +32,13 @@ class NotesRepository(
 
     fun observeItems(sectionId: Long): Flow<List<Item>> = items.observeBySection(sectionId)
 
-    /** Open-item counts keyed by section id, for the rail badges. Absent means none open. */
-    fun observeOpenCounts(): Flow<Map<Long, Int>> =
-        items.observeOpenCounts().map { rows -> rows.associate { it.sectionId to it.openCount } }
+    /**
+     * Raw open-item buckets for the rail badges and header counts. Deliberately not folded
+     * into counts here: folding needs the current time, and a clock held anywhere behind the
+     * Flow is a clock that stops. The UI applies it — see
+     * [com.jt.naicenotes.data.util.countsBySection].
+     */
+    fun observeOpenBuckets(): Flow<List<SectionDueBucket>> = items.observeOpenBuckets()
 
     suspend fun listItems(sectionId: Long): List<Item> = items.listBySection(sectionId)
 
@@ -73,9 +78,21 @@ class NotesRepository(
     }
 
     /** New items land at the top of the section, not the bottom. */
-    suspend fun addItem(sectionId: Long, text: String): Long {
+    suspend fun addItem(
+        sectionId: Long,
+        text: String,
+        dueAt: Long? = null,
+        repeatWeeks: Int? = null,
+    ): Long {
         val url = LinkDetector.findUrl(text)
-        val row = Item(sectionId = sectionId, text = text, position = 0, linkUrl = url)
+        val row = Item(
+            sectionId = sectionId,
+            text = text,
+            position = 0,
+            linkUrl = url,
+            dueAt = dueAt,
+            repeatWeeks = repeatWeeks,
+        )
         val id = items.insertAtTop(row)
         onChange()
         if (url != null) onLinkDetected(id, url)
@@ -143,6 +160,21 @@ class NotesRepository(
     suspend fun designateClaudeSection(section: Section) {
         sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
         sections.update(section.copy(remoteKind = Section.REMOTE_KIND_CLAUDE))
+        onChange()
+    }
+
+    suspend fun setSchedule(item: Item, dueAt: Long?, repeatWeeks: Int?) {
+        items.setSchedule(item.id, dueAt, repeatWeeks)
+        onChange()
+    }
+
+    /**
+     * Start a repeating note's cycle again. Ticking one off deliberately doesn't do this —
+     * "done" and "owed again" are different claims, and only the second is worth guessing at.
+     */
+    suspend fun resetTimer(item: Item, now: Long = System.currentTimeMillis()) {
+        val weeks = item.repeatWeeks ?: return
+        items.setSchedule(item.id, nextDueAt(now, weeks), weeks)
         onChange()
     }
 

@@ -40,6 +40,9 @@ interface ItemDao {
     @Query("UPDATE items SET pushedAt = :at WHERE id = :id")
     suspend fun markPushed(id: Long, at: Long)
 
+    @Query("UPDATE items SET dueAt = :dueAt, repeatWeeks = :repeatWeeks WHERE id = :id")
+    suspend fun setSchedule(id: Long, dueAt: Long?, repeatWeeks: Int?)
+
     /**
      * Notes in a remote-backed section that never reached the inbox — the app was offline at
      * add time, or the call failed. Ordered oldest-first so a backlog drains in the order it
@@ -53,12 +56,19 @@ interface ItemDao {
     suspend fun listUnpushedInRemoteSections(): List<Item>
 
     /**
-     * Open-item count per section, for the rail badges. Sections with nothing open are simply
-     * absent from the result rather than reported as zero — the caller renders no badge for a
-     * missing key, which is the same thing.
+     * Open items per section, split by due date, for the rail badges and the header counts.
+     *
+     * Grouping on `dueAt` rather than filtering by it keeps this aggregate free of the clock:
+     * a `:now` parameter would bind once and the Flow would go on answering for that instant
+     * forever. [com.jt.naicenotes.data.util.countsBySection] applies the clock instead. Every
+     * unscheduled item still collapses into one `dueAt IS NULL` bucket per section, so this is
+     * barely wider than the plain count it replaced.
+     *
+     * Sections with nothing open are absent rather than reported as zero — the caller renders
+     * no badge for a missing key, which is the same thing.
      */
-    @Query("SELECT sectionId, COUNT(*) AS openCount FROM items WHERE isChecked = 0 GROUP BY sectionId")
-    fun observeOpenCounts(): Flow<List<SectionOpenCount>>
+    @Query("SELECT sectionId, dueAt, COUNT(*) AS count FROM items WHERE isChecked = 0 GROUP BY sectionId, dueAt")
+    fun observeOpenBuckets(): Flow<List<SectionDueBucket>>
 
     @Query("UPDATE items SET sectionId = :sectionId, position = :position WHERE id = :id")
     suspend fun setSection(id: Long, sectionId: Long, position: Int)
@@ -127,8 +137,9 @@ interface ItemDao {
     suspend fun deleteAllInSection(sectionId: Long)
 }
 
-/** One row of [ItemDao.observeOpenCounts]. */
-data class SectionOpenCount(
+/** One row of [ItemDao.observeOpenBuckets]: open items in a section sharing a due date. */
+data class SectionDueBucket(
     val sectionId: Long,
-    val openCount: Int,
+    val dueAt: Long?,
+    val count: Int,
 )

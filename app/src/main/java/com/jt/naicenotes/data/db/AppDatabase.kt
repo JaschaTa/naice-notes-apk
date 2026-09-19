@@ -11,7 +11,7 @@ import com.jt.naicenotes.data.entity.Section
 
 @Database(
     entities = [Section::class, Item::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -75,6 +75,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 adds the schedule: `dueAt` is when a note becomes active, `repeatWeeks` how
+         * often it comes back. Both nullable, so every existing note stays an ordinary one
+         * that is always active and no row needs backfilling. Nothing filters on either in
+         * SQL — the due/waiting split happens in Kotlin — so neither is indexed.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE items ADD COLUMN dueAt INTEGER")
+                db.execSQL("ALTER TABLE items ADD COLUMN repeatWeeks INTEGER")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -90,6 +103,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
+                        MIGRATION_6_7,
                     )
                     .build().also { instance = it }
             }

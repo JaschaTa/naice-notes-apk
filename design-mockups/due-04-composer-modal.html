@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Naice Notes — Due 4: Composer button &amp; scheduling modal</title>
+<style>
+  :root {
+    --rail:      #1A1D21;
+    --bg:        #121316;
+    --fg:        #E4E2E6;
+    --fg-muted:  #9A9DA4;
+    --fg-faint:  #6B6E74;
+    --hairline:  rgba(255,255,255,0.10);
+    --accent:    #4CAF50;
+    --due:       #FFB300;
+    --sheet:     #24262A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: #2A2A2C;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone {
+    width: 412px; height: 760px;
+    background: var(--bg); color: var(--fg);
+    border-radius: 44px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; position: relative;
+  }
+  .rail { width: 70px; flex-shrink: 0; background: var(--rail); }
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-top: 14px; }
+
+  .chan-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 12px 9px 12px; border-bottom: 1px solid var(--hairline);
+  }
+  .chan-tile {
+    width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 19px; background: rgba(76,175,80,0.22);
+  }
+  .chan-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+  .chan-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12.5px; color: var(--fg-muted); }
+  .chan-meta .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  .items { flex: 1; padding: 2px 0; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 14px; min-height: 40px; }
+  .check { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; border: 1.8px solid #6B6E74; }
+  .txt { font-size: 15.5px; flex: 1; }
+  .kebab { width: 22px; color: var(--fg-faint); text-align: center; font-size: 17px; }
+
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+
+  /* ---------- the scheduling modal ---------- */
+  .sheet {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 96px; width: 330px;
+    background: var(--sheet); border-radius: 26px; padding: 20px 20px 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  }
+  .sheet h4 { margin: 0 0 2px; font-size: 19px; font-weight: 700; }
+  .sheet .sub { font-size: 12.5px; color: var(--fg-muted); margin-bottom: 16px; }
+  .grouplab {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--fg-faint); margin-bottom: 8px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
+  .chip {
+    font-size: 13px; font-weight: 600; padding: 7px 12px;
+    border-radius: 9px; border: 1px solid rgba(255,255,255,0.18); color: var(--fg-muted);
+  }
+  .chip.sel {
+    background: rgba(255,179,0,0.18); border-color: var(--due); color: #FFD98A;
+  }
+  .chip.cal { display: inline-flex; align-items: center; gap: 6px; }
+  .chip.cal svg { width: 14px; height: 14px; }
+
+  .repeatrow {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 0 4px; border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .repeatrow .lab { flex: 1; font-size: 14.5px; }
+  .switch {
+    width: 44px; height: 26px; border-radius: 13px; background: var(--due); position: relative;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 3px; right: 3px;
+    width: 20px; height: 20px; border-radius: 50%; background: #1A1A1A;
+  }
+  .stepper {
+    display: flex; align-items: center; gap: 14px; margin: 12px 0 4px;
+    background: rgba(255,255,255,0.05); border-radius: 12px; padding: 8px 14px;
+  }
+  .stepper .pm {
+    width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.10);
+    display: grid; place-items: center; font-size: 16px; font-weight: 700; color: var(--fg);
+  }
+  .stepper .val { flex: 1; text-align: center; font-size: 14.5px; font-weight: 600; }
+
+  .sheetbtns { display: flex; align-items: center; gap: 4px; margin: 14px -8px 0; }
+  .sheetbtns .grow { flex: 1; }
+  .sheetbtns div {
+    font-size: 13.5px; font-weight: 700; color: #9FD59F; padding: 9px 12px; border-radius: 8px;
+  }
+  .sheetbtns div.muted { color: var(--fg-muted); }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { padding: 6px 10px 0 10px; }
+  .composer { border: 1.5px solid rgba(255,255,255,0.16); border-radius: 14px; overflow: hidden; }
+  .composer .field { padding: 11px 14px 3px; font-size: 15.5px; color: var(--fg-faint); }
+  .composer .bar { display: flex; align-items: center; gap: 2px; padding: 2px 6px 6px; }
+  .tool { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--fg-muted); }
+  .tool svg { width: 19px; height: 19px; }
+  .tool.armed { background: rgba(255,179,0,0.18); color: var(--due); }
+  .claudebox {
+    display: flex; align-items: center; gap: 5px; padding: 6px 7px;
+    border-radius: 9px; color: var(--fg-muted); font-size: 13.5px; font-weight: 600;
+  }
+  .claudebox .ring { width: 17px; height: 17px; border-radius: 50%; border: 1.8px solid #6B6E74; }
+  .bar .grow { flex: 1; }
+  .send {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(255,255,255,0.10); color: var(--fg-faint);
+    display: grid; place-items: center;
+  }
+  .send svg { width: 17px; height: 17px; }
+  .safe { height: 26px; }
+  .home-indicator {
+    position: absolute; bottom: 9px; left: calc(50% + 35px);
+    transform: translateX(-50%); width: 128px; height: 5px;
+    background: #fff; opacity: 0.35; border-radius: 3px;
+  }
+
+  /* ---------- states panel ---------- */
+  .panel {
+    width: 412px; margin-top: 24px; border-radius: 16px;
+    background: #212124; padding: 18px; color: #fff;
+  }
+  .panel h3 {
+    margin: 0 0 3px; font-size: 13px; letter-spacing: 0.07em;
+    text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 700;
+  }
+  .panel p.small {
+    margin: 0 0 14px; font-size: 12px; line-height: 1.55;
+    color: rgba(255,255,255,0.55); font-family: ui-monospace, monospace;
+  }
+  .btnstates { display: flex; gap: 10px; }
+  .bs { flex: 1; }
+  .bs .demo {
+    background: var(--bg); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px; padding: 8px 6px; display: flex; justify-content: center; gap: 2px;
+  }
+  .bs .cap {
+    margin-top: 8px; font-size: 11px; line-height: 1.45; text-align: center;
+    color: rgba(255,255,255,0.7); font-family: ui-monospace, monospace;
+  }
+  .bs .cap b { color: #FFD02F; display: block; margin-bottom: 3px; font-size: 11.5px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 10px;
+    border-radius: 9px; font-size: 12.5px; font-weight: 700;
+  }
+  .pill.armed { background: rgba(255,179,0,0.18); color: var(--due); }
+
+  .caption {
+    color: rgba(255,255,255,0.75); font-size: 12.5px; line-height: 1.6;
+    margin-top: 18px; max-width: 412px; font-family: ui-monospace, monospace;
+  }
+  .caption b { color: #fff; }
+  .caption code { color: #FFD9A0; }
+  .caption .warn { color: #FFB4A0; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="rail"></div>
+  <div class="content">
+    <div class="chan-head">
+      <div class="chan-tile">🛒</div>
+      <div>
+        <div class="chan-title">Shopping</div>
+        <div class="chan-meta"><span class="dot"></span> 3 open</div>
+      </div>
+    </div>
+    <div class="items">
+      <div class="row"><div class="check"></div><div class="txt">olive oil</div><div class="kebab">⋮</div></div>
+      <div class="row"><div class="check"></div><div class="txt">fresh basil leaves</div><div class="kebab">⋮</div></div>
+      <div class="row"><div class="check"></div><div class="txt">parmesan, the good one</div><div class="kebab">⋮</div></div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="field" style="color:var(--fg)">descale the coffee machine</div>
+        <div class="bar">
+          <div class="tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+          <div class="tool armed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+            </svg>
+          </div>
+          <div class="claudebox"><span class="ring"></span> Claude</div>
+          <div class="grow"></div>
+          <div class="send" style="background:var(--accent); color:#10240F">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l19-8L3 4v6l13 2-13 2z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="safe"></div>
+  </div>
+
+  <div class="scrim"></div>
+
+  <!-- ============ SCHEDULING MODAL ============ -->
+  <div class="sheet">
+    <h4>Schedule</h4>
+    <div class="sub">When should this become active?</div>
+
+    <div class="grouplab">Due</div>
+    <div class="chips">
+      <div class="chip">Tomorrow</div>
+      <div class="chip">1 week</div>
+      <div class="chip sel">2 weeks</div>
+      <div class="chip">1 month</div>
+      <div class="chip cal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>
+        </svg>
+        Pick a date
+      </div>
+    </div>
+
+    <div class="repeatrow">
+      <div class="lab">Repeat</div>
+      <div class="switch"></div>
+    </div>
+    <div class="stepper">
+      <div class="pm">−</div>
+      <div class="val">every 2 weeks</div>
+      <div class="pm">+</div>
+    </div>
+
+    <div class="sheetbtns">
+      <div class="muted">Clear</div>
+      <div class="grow"></div>
+      <div class="muted">Cancel</div>
+      <div>Set</div>
+    </div>
+  </div>
+
+  <div class="home-indicator"></div>
+</div>
+
+<!-- ============ BUTTON STATES ============ -->
+<div class="panel">
+  <h3>Composer button — three states</h3>
+  <p class="small">
+    Third control in the tool rail, beside scan and the Claude checkbox. Unlike the Claude checkbox — which
+    is deliberately sticky so a run of captures doesn't need re-arming — the schedule <b>clears on submit</b>,
+    because a due date belongs to one task, not to a mood you're in.
+  </p>
+  <div class="btnstates">
+    <div class="bs">
+      <div class="demo">
+        <span class="tool">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+          </svg>
+        </span>
+      </div>
+      <div class="cap"><b>idle</b>Icon only, same weight as the camera. No schedule set.</div>
+    </div>
+    <div class="bs">
+      <div class="demo">
+        <span class="tool armed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+          </svg>
+        </span>
+      </div>
+      <div class="cap"><b>armed · icon</b>Amber wash, matching the due colour. Cheapest, but doesn't say when.</div>
+    </div>
+    <div class="bs">
+      <div class="demo">
+        <span class="pill armed">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+          </svg>
+          2w · 🔁
+        </span>
+      </div>
+      <div class="cap"><b>armed · label</b>Expands to carry the setting. Confirms without reopening; costs rail width.</div>
+    </div>
+  </div>
+</div>
+
+<div class="caption">
+<b>Due 4 · Composer button &amp; modal.</b> One modal covers both features: a <b>Due</b> row of quick
+chips for the common intervals plus an escape hatch to a real date picker, and a <b>Repeat</b> switch that
+reveals a weeks stepper. A one-off is a due chip with repeat off; a recurring task is both. Repeat on with
+no due chip is owed straight away — the cycle starts from the first reset, not from setting it up.<br><br>
+<b>Chips before calendar.</b> "In two weeks" is the actual thought — going through a month grid to express
+it is three taps and a date you then have to remember. The calendar stays for the cases chips can't say
+("the 14th, when the warranty ends"). Material3 ships <code>DatePickerDialog</code>, so the escape hatch
+is free.<br><br>
+<b>Weeks only in the stepper.</b> Matches the ask and keeps <code>repeatWeeks INTEGER</code> a plain count.
+Days and months would each need a unit enum in the schema — worth it only if the need shows up.<br><br>
+<b class="warn">Unresolved: schedule + Claude together.</b> A note sent to Claude leaves the app and is
+never read back, so a due date on it is meaningless — the row it would attach to doesn't stay. Cleanest is
+mutually exclusive: arming one clears the other, which is one line at each call site but needs to not feel
+like the app is undoing your taps. Shown here with Claude unchecked, deliberately.<br><br>
+<b class="warn">Reset-on-submit has a trap.</b> <code>text</code> and the Claude checkbox are
+<code>rememberSaveable</code> in <code>Composer</code>; the schedule has to live in the same place and be
+cleared in <code>submit()</code> alongside <code>text</code>. Miss that and the next three tasks silently
+inherit a due date — the kind of bug you don't notice for two weeks, by which time the evidence has
+scrolled below a divider.
+</div>
+</body>
+</html>

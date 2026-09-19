@@ -41,10 +41,30 @@ data class Item(
      * and "sending failed" are intentionally the same state.
      */
     val pushedAt: Long? = null,
+    /**
+     * When this note becomes active, or null for one that always is. Until then it sits
+     * below the divider at the bottom of its section and counts towards nothing.
+     */
+    val dueAt: Long? = null,
+    /** How often the note comes back, or null for a one-off. Restarted by hand, never on tick. */
+    val repeatWeeks: Int? = null,
 ) {
     val isLink: Boolean get() = linkUrl != null
 
     val isPushed: Boolean get() = pushedAt != null
+
+    val isScheduled: Boolean get() = dueAt != null || repeatWeeks != null
+
+    val isRecurring: Boolean get() = repeatWeeks != null
+
+    /**
+     * [isDue] and [isWaiting] are **not** complements: a note with no `dueAt` is neither, and
+     * that's the ordinary case. Ask [isWaiting] when deciding what to hide or discount, and
+     * [isDue] only when deciding what to emphasise.
+     */
+    fun isDue(now: Long): Boolean = dueAt != null && dueAt <= now
+
+    fun isWaiting(now: Long): Boolean = dueAt != null && dueAt > now
 
     /**
      * The item's main line. Prefers the fetched page title; falls back to a readable name

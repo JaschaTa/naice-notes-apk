@@ -124,6 +124,7 @@ Two traps cost real time here, both of which make a working app look broken:
 - Undo-delete deliberately restores an item to its *original* position, not the top.
 - Sections live in a fixed-width left rail (`RAIL_WIDTH`), not the horizontal pill row that preceded it. The rail is a **fixed near-black in both themes** rather than following Material You: it has to make nine saturated section colours read as accents, and a dynamic mid-tone fights them. It collapses to zero width via a header toggle, persisted in `UiPrefs` — the toggle is the active section's glyph tile in *both* states, never a chevron, so the tile always means "this section". Collapsing is a tap, not a left-edge swipe: on One UI gesture nav that edge is system back.
 - Every gesture on an item row is already taken — tap the circle toggles, tap the text edits, long-press drags, swipe deletes — which is why per-item actions hang off an explicit `⋮` menu rather than a press-reveal bar. Rows in the Claude section are the one exception: all of those are gated off, leaving the send arrow as the only thing to touch.
+- The item list draws **two blocks** — active rows, then not-yet-due ones below a divider — from a single `partition` on one hoisted `now`, so a row lands in exactly one of them. The drag indices it reports are therefore *rendered* positions while `orderedItems` is still in stored order; `reorderWithin` matches by id to translate, and only active ids are passed to `reorderItems` so a drag can't renumber the block below.
 - Inside a bounded `Column`, a `LazyColumn` sibling must use `weight(1f)`, not `fillMaxSize()` — the latter requests the full parent height and overflows by the height of whatever sits beside it.
 - Link rows are capped at a single-line title (`maxLines = 1`) so they stay a predictable two lines tall. Variable-height cards were explicitly rejected during design — see `design-mockups/link-0*.html`.
 
@@ -143,7 +144,7 @@ The alternative was `androidx.emoji2:emoji2-emojipicker`, measured at **+4.44 MB
 
 ## Database migrations
 
-**Currently at schema version 6**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change), `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`) and `MIGRATION_5_6` (`sections.emoji`) all registered in `AppDatabase.get()`. The next schema change is 6→7.
+**Currently at schema version 7**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change), `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`), `MIGRATION_5_6` (`sections.emoji`) and `MIGRATION_6_7` (`items.dueAt`, `items.repeatWeeks`) all registered in `AppDatabase.get()`. The next schema change is 7→8.
 
 The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above). Take a backup first: `~/naice-notes-backups/` holds one set per migration so far.
 
@@ -159,7 +160,9 @@ Four suites, all plain JVM — deliberately no Compose UI tests, because every r
 - `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
 - `InboxPushTest` — issue title derivation, dedupe-key stability and the JWT wire format for the inbox push. The dedupe assertions are the load-bearing ones: if the key stops being stable, a retry creates a duplicate task.
 - `SectionGlyphTest` — `Section.glyph` / `hasEmoji`, including blank-emoji handling, the nameless-section fallback and the multi-codepoint case. Drawn in four places and unobservable inside RemoteViews, so it's locked here instead.
-- `PushedAtFormatTest` — `formatPushedAt`, the send-receipt tooltip's only content. Zone and locale are parameters purely so this can pin them; a zone bug here would read as plausible rather than wrong.
+- `PushedAtFormatTest` — `formatPushedAt` and `formatDueRelative`. Zone and locale are parameters purely so these can pin them; a zone bug here would read as plausible rather than wrong.
+- `ScheduleTest` — `countsBySection`, `nextDueAt`, `startOfDayIn`, `utcDateToLocalStartOfDay`, and the `isDue`/`isWaiting` rules. The DST case is the load-bearing one: millisecond-based week arithmetic passes every test that doesn't cross a boundary.
+- `ReorderWithinTest` — the rendered-index → stored-index translation for drag. Untestable through Compose, and wrong silently: it only misbehaves in sections that actually hold a scheduled note.
 
 `androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariants (`insertAtTop`, `moveToSectionTop`) and the migrations all have no coverage.
 
@@ -168,6 +171,24 @@ Everything still uncovered needs an Android runtime, so it's blocked behind one 
 ## Link previews
 
 Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL via `LinkDetector`, and hands the text to the repository. `NotesRepository.addItem` detects the URL and fires the `onLinkDetected` callback, which `NaiceNotesApp` wires to a background Open Graph fetch — so *every* add path (composer, widget quick-add, share) gets previews without knowing about networking. Fetching is direct from the device, best-effort: a failure leaves the raw URL showing, and `retryMissingLinkPreviews()` retries on next launch for links shared while offline.
+
+## Scheduled and repeating notes
+
+A note can carry `items.dueAt` (when it becomes active) and `items.repeatWeeks` (how often it comes back), both nullable. Two ways in, both opening the same `ScheduleDialog`: the calendar button in the composer's tool rail, which arms green and **clears on submit** (unlike the deliberately sticky Claude checkbox), and **Add timer / Edit timer** in a row's ⋮ menu for notes already on the list. The composer button and the Claude checkbox are mutually exclusive: a note sent to Claude never comes back, so there's nothing for a due date to attach to.
+
+A repeat with no date is owed **straight away** rather than one interval out — setting one up is usually the moment you're about to do the thing, and the cycle starts from the first reset.
+
+Until it's due a note sits below a **"Not due yet"** divider at the bottom of its section, muted, and counts towards nothing — not the rail badge, not the widget. Once due it rejoins the list with an amber bar, wash and heavier text, and the section header reads `"3 open · 2 due"` with the rail badge going amber. Amber is fixed rather than the section accent: due-ness has to mean the same thing everywhere, and nine saturated accents would make it read as the section instead.
+
+The row's glyph (⏳ waiting, ⏰ due, 🔁 repeating) opens a `RichTooltip` carrying the date and **exactly one action** — "Make active now", "Remove due" or "Reset timer". One action each is the rule: the tooltip answers "what now?", and anything else (including stopping a repeat, via Edit timer → Clear) belongs in the ⋮ menu where per-item actions already live. Ticking a repeating note off does nothing special; only "Reset timer" restarts the cycle, since "done" and "owed again" are different claims.
+
+Three things that look like details and aren't:
+
+- **Nothing runs on a timer.** There is no scheduler anywhere in this app, so due-ness is evaluated when the list is composed. `rememberNow()` re-reads the clock on `ON_RESUME` and is hoisted **once** in `HomeScreen`; anything calling `System.currentTimeMillis()` inline instead can disagree with it inside one frame. Left open and never backgrounded, the app won't notice a boundary crossing. Don't add a foreground ticker — it would reshuffle the list under a finger mid-drag.
+- **The counts query must never take the clock.** `observeOpenBuckets` groups by `(sectionId, dueAt)` and `countsBySection` applies `now` in Kotlin, because a Room `Flow` built with a `:now` argument keeps answering for the instant it was created. Same reason `NotesRepository` hands the buckets over unfolded.
+- **`nextDueAt` uses `ZonedDateTime.plusWeeks`, not `weeks * 604_800_000`.** Millisecond arithmetic drifts an hour across a DST boundary, and a fortnightly chore eventually lands on the wrong day. `ScheduleTest` locks it.
+
+Ordering needed no SQL change: `observeBySection`/`listBySection` stay byte-identical and the split happens in Kotlin, per the `moveDoneToBottom` precedent. A note that becomes due reappears at its stored position rather than the top — there's no moment at which to move it — which in practice is near the top anyway, since `addItem` inserts at 0.
 
 ## Vault task inbox push
 

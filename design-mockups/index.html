@@ -36,9 +36,25 @@
 </head>
 <body>
 <h1>Naice Notes — design exploration</h1>
-<p>Redesign round (Slack + Miro) first. Original 2026-05 directions and widget/link mocks below.</p>
+<p>Timed &amp; recurring tasks first. Shipped redesign round (Slack + Miro), original 2026-05 directions and widget/link mocks below.</p>
 
-<h2 style="margin-top:8px">Redesign — Slack &amp; Miro</h2>
+<h2 style="margin-top:8px">Timed &amp; recurring tasks (2026-09)</h2>
+<p class="lede">
+  A task can carry a due date, a repeat interval, or both. Until it's due it sits below a divider at the
+  bottom of its section, muted and uncounted; once due it moves up. <b>1</b> and <b>2</b> are the same
+  data at two volumes &mdash; pick how loudly "this came due" should read. <b>3</b> is the tooltip that
+  hangs off the row glyph and carries the actions; <b>4</b> is how you set a schedule in the first place.
+  Dark, unlike the older mocks, because the whole decision is muted-vs-emphasised contrast on the real
+  background.
+</p>
+<div class="grid-tall">
+  <iframe src="due-01-quiet.html" title="Due 1 — Quiet" style="height:1560px"></iframe>
+  <iframe src="due-02-loud.html" title="Due 2 — Loud" style="height:1560px"></iframe>
+  <iframe src="due-03-tooltip-actions.html" title="Due 3 — Tooltip actions" style="height:1720px"></iframe>
+  <iframe src="due-04-composer-modal.html" title="Due 4 — Composer button &amp; modal" style="height:1560px"></iframe>
+</div>
+
+<h2>Redesign — Slack &amp; Miro</h2>
 <p class="lede">
   Five directions against the shipped "Minimal+" layout. 1&ndash;2 borrow Slack's structure (persistent
   nav, press-reveal row actions, the composer as a first-class boxed object). 3&ndash;4 borrow Miro's

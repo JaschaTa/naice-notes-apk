@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Naice Notes — Due 3: Tooltip actions (RichTooltip states)</title>
+<style>
+  :root {
+    --rail:      #1A1D21;
+    --bg:        #121316;
+    --fg:        #E4E2E6;
+    --fg-muted:  #9A9DA4;
+    --fg-faint:  #6B6E74;
+    --hairline:  rgba(255,255,255,0.10);
+    --accent:    #4CAF50;
+    --due:       #FFB300;
+    --tip:       #2C2F34;   /* RichTooltip container */
+    --tip-act:   #9FD59F;   /* action label — Material3 uses the accent role here */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background: #2A2A2C;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone {
+    width: 412px; height: 620px;
+    background: var(--bg); color: var(--fg);
+    border-radius: 44px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; position: relative;
+  }
+  .rail { width: 70px; flex-shrink: 0; background: var(--rail); }
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-top: 14px; }
+
+  .chan-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 12px 9px 12px; border-bottom: 1px solid var(--hairline);
+  }
+  .chan-tile {
+    width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 19px; background: rgba(76,175,80,0.22);
+  }
+  .chan-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+  .chan-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12.5px; color: var(--fg-muted); }
+  .chan-meta .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  .items { flex: 1; padding: 2px 0; position: relative; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px 6px 14px; min-height: 40px; border-left: 3px solid transparent;
+  }
+  .check { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; border: 1.8px solid #6B6E74; }
+  .txt { font-size: 15.5px; line-height: 1.35; flex: 1; }
+  .kebab { width: 22px; color: var(--fg-faint); text-align: center; font-size: 17px; line-height: 1; }
+  .glyph { font-size: 14px; line-height: 1; }
+  .row.due { border-left-color: var(--due); background: rgba(255,179,0,0.07); }
+  .row.due .txt { color: #fff; font-weight: 600; }
+  .row.due .glyph { background: rgba(255,179,0,0.20); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; }
+  .row.undue .txt { color: var(--fg-faint); }
+  .row.undue .check { border-color: #3E4146; }
+  .row.undue .glyph { opacity: 0.55; }
+
+  /* ---------- the RichTooltip ---------- */
+  .tip {
+    position: absolute; background: var(--tip);
+    border-radius: 12px; padding: 13px 15px 7px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+    width: 268px;
+  }
+  .tip .t-title { font-size: 13.5px; font-weight: 700; color: #fff; }
+  .tip .t-body { font-size: 12.5px; line-height: 1.45; color: var(--fg-muted); margin-top: 3px; }
+  .tip .t-actions { display: flex; gap: 4px; margin: 8px -7px 0; }
+  .tip .t-actions div {
+    font-size: 13px; font-weight: 700; color: var(--tip-act);
+    padding: 7px 9px; border-radius: 7px;
+  }
+  .tip .t-actions div.danger { color: #FFB4A0; }
+  .tip .caret {
+    position: absolute; width: 14px; height: 8px; background: var(--tip);
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+  }
+
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.25); }
+
+  /* ---------- states panel ---------- */
+  .panel {
+    width: 412px; margin-top: 24px; border-radius: 16px;
+    background: #212124; padding: 18px; color: #fff;
+  }
+  .panel h3 {
+    margin: 0 0 3px; font-size: 13px; letter-spacing: 0.07em;
+    text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 700;
+  }
+  .panel p.small {
+    margin: 0 0 16px; font-size: 12px; line-height: 1.55;
+    color: rgba(255,255,255,0.55); font-family: ui-monospace, monospace;
+  }
+  .states { display: flex; flex-direction: column; gap: 14px; }
+  .state .sl {
+    font-size: 11px; font-family: ui-monospace, monospace;
+    color: #FFD02F; font-weight: 700; margin-bottom: 6px;
+  }
+  .state .tip { position: static; width: 100%; }
+  .state .note {
+    font-size: 11px; line-height: 1.5; color: rgba(255,255,255,0.6);
+    font-family: ui-monospace, monospace; margin-top: 6px;
+  }
+
+  .caption {
+    color: rgba(255,255,255,0.75); font-size: 12.5px; line-height: 1.6;
+    margin-top: 18px; max-width: 412px; font-family: ui-monospace, monospace;
+  }
+  .caption b { color: #fff; }
+  .caption code { color: #FFD9A0; }
+  .caption .warn { color: #FFB4A0; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="rail"></div>
+  <div class="content">
+    <div class="chan-head">
+      <div class="chan-tile">🛒</div>
+      <div>
+        <div class="chan-title">Shopping</div>
+        <div class="chan-meta"><span class="dot"></span> 3 open</div>
+      </div>
+    </div>
+
+    <div class="items">
+      <div class="row"><div class="check"></div><div class="txt">olive oil</div><div class="kebab">⋮</div></div>
+
+      <div class="row due">
+        <div class="check"></div>
+        <div class="txt">water the balcony plants</div>
+        <div class="glyph">🔁</div>
+        <div class="kebab">⋮</div>
+      </div>
+
+      <div class="row"><div class="check"></div><div class="txt">fresh basil leaves</div><div class="kebab">⋮</div></div>
+      <div class="row undue">
+        <div class="check"></div><div class="txt">book the winter service</div>
+        <div class="glyph">⏳</div><div class="kebab">⋮</div>
+      </div>
+
+      <!-- tooltip anchored under the recurring row's glyph -->
+      <div class="tip" style="top: 86px; right: 14px;">
+        <div class="caret" style="top:-8px; right: 40px; transform: rotate(180deg)"></div>
+        <div class="t-title">Due today</div>
+        <div class="t-body">Repeats every 2 weeks. Last reset 14 Sep.</div>
+        <div class="t-actions">
+          <div>Reset timer</div>
+          <div>Remove due</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOOLTIP STATES ============ -->
+<div class="panel">
+  <h3>RichTooltip — the three states</h3>
+  <p class="small">
+    Verified against material3 <b>1.4.0</b>: <code>RichTooltip(title=, text=, action=)</code> exists and is
+    <code>@ExperimentalMaterial3Api</code>. Needs <code>isPersistent = true</code> so it survives long
+    enough to tap, and <code>TooltipBox(hasAction = true)</code> for TalkBack focus.
+    <code>TooltipState.dismiss()</code> is non-suspend, so a button closes it directly.
+  </p>
+
+  <div class="states">
+    <div class="state">
+      <div class="sl">A · not due yet (⏳)</div>
+      <div class="tip">
+        <div class="t-title">Due in 12 days</div>
+        <div class="t-body">1 Oct 2026. Sitting below the divider until then.</div>
+        <div class="t-actions"><div>Make active now</div><div>Remove due</div></div>
+      </div>
+      <div class="note">
+        Open question: should the undue tooltip act at all, or just inform? <b>Make active now</b> is the
+        one action that only exists here — it's how you pull something forward early.
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="sl">B · due, one-off (⏰)</div>
+      <div class="tip">
+        <div class="t-title">Due today</div>
+        <div class="t-body">Came due 19 Sep 2026.</div>
+        <div class="t-actions"><div>Remove due</div><div class="danger">Delete</div></div>
+      </div>
+      <div class="note">
+        <b>Remove due</b> clears <code>dueAt</code> and it becomes an ordinary task, staying where it is.
+        Open question: <b>Delete</b> duplicates the row's own ⋮ menu — worth the reach, or noise?
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="sl">C · due, recurring (🔁)</div>
+      <div class="tip">
+        <div class="t-title">Due today</div>
+        <div class="t-body">Repeats every 2 weeks. Last reset 14 Sep.</div>
+        <div class="t-actions"><div>Reset timer</div><div>Remove due</div></div>
+      </div>
+      <div class="note">
+        <b>Reset timer</b> sets <code>dueAt = now + repeatWeeks</code> and drops it back below the divider —
+        this is the whole recurring loop, since ticking the checkbox deliberately does nothing special.
+        <b>Remove due</b> here clears the repeat as well: it stops being a cycle.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="caption">
+<b>Due 3 · Tooltip actions.</b> The glyph is the control. Tapping it opens a rich tooltip carrying the one
+fact the row can't show (when) plus the one or two actions that only make sense for a scheduled task. It's
+the same <code>TooltipBox</code> the Claude receipt already uses, so this is a second instance of an
+existing pattern rather than new chrome.<br><br>
+<b>Why not the ⋮ menu?</b> It's right there and already holds five entries. But the schedule actions are
+about <i>this row's time</i>, and the tooltip is where the time is already being shown — splitting "when"
+into a tooltip and "reset it" into a menu three pixels away is worse than putting both in one place.
+The counter-argument is real though, and it's exactly the <b>Delete</b> question in state B.<br><br>
+<b>Three actions is the ceiling.</b> <code>richTooltipMaxWidth</code> is 320dp and the action row is a
+single line, so two labels of this length fit comfortably and three is tight. If a state needs more, it
+wants a dialog instead.<br><br>
+<b class="warn">Persistent tooltips steal the next tap.</b> With <code>isPersistent = true</code> the
+tooltip stays until dismissed, and the outside tap that closes it is swallowed by the popup — so the first
+tap after reading it does nothing to the list. That's correct behaviour and still surprising; worth
+feeling on device before committing.<br><br>
+<b class="warn">1.4.0 renamed <code>caretSize</code> → <code>caretShape</code>.</b> The old parameter
+survives only as a hidden binary-compatibility overload, so source that copies an older sample won't
+compile. Use <code>TooltipDefaults.caretShape()</code> and
+<code>rememberRichTooltipPositionProvider()</code>, not the plain one.
+</div>
+</body>
+</html>
