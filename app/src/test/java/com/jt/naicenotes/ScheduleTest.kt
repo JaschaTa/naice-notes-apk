@@ -1,9 +1,10 @@
 package com.jt.naicenotes
 
-import com.jt.naicenotes.data.db.SectionDueBucket
+import com.jt.naicenotes.data.db.SectionItemBucket
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.util.countsBySection
 import com.jt.naicenotes.data.util.nextDueAt
+import com.jt.naicenotes.data.util.totalsBySection
 import com.jt.naicenotes.data.util.startOfDayIn
 import com.jt.naicenotes.data.util.utcDateToLocalStartOfDay
 import java.time.Instant
@@ -57,8 +58,8 @@ class ScheduleTest {
     fun `unscheduled and due items both count as open, only the dated ones as due`() {
         val counts = countsBySection(
             listOf(
-                SectionDueBucket(sectionId = 1, dueAt = null, count = 3),
-                SectionDueBucket(sectionId = 1, dueAt = NOW - 1, count = 2),
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = null, count = 3),
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = NOW - 1, count = 2),
             ),
             now = NOW,
         )
@@ -70,8 +71,8 @@ class ScheduleTest {
     fun `waiting items are excluded from both counts`() {
         val counts = countsBySection(
             listOf(
-                SectionDueBucket(sectionId = 1, dueAt = null, count = 1),
-                SectionDueBucket(sectionId = 1, dueAt = NOW + 1, count = 4),
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = null, count = 1),
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = NOW + 1, count = 4),
             ),
             now = NOW,
         )
@@ -82,10 +83,40 @@ class ScheduleTest {
     @Test
     fun `a section with nothing but waiting items is absent rather than zero`() {
         val counts = countsBySection(
-            listOf(SectionDueBucket(sectionId = 7, dueAt = NOW + 1, count = 2)),
+            listOf(SectionItemBucket(sectionId = 7, isChecked = false, dueAt = NOW + 1, count = 2)),
             now = NOW,
         )
         assertNull(counts[7])
+    }
+
+    @Test
+    fun `checked items count towards neither open nor due`() {
+        val counts = countsBySection(
+            listOf(
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = null, count = 2),
+                SectionItemBucket(sectionId = 1, isChecked = true, dueAt = null, count = 5),
+                SectionItemBucket(sectionId = 1, isChecked = true, dueAt = NOW - 1, count = 3),
+            ),
+            now = NOW,
+        )
+        assertEquals(2, counts.getValue(1).open)
+        assertEquals(0, counts.getValue(1).due)
+    }
+
+    // ---- totalsBySection ----
+
+    @Test
+    fun `clear totals ignore the clock and count everything stored`() {
+        val totals = totalsBySection(
+            listOf(
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = null, count = 2),
+                SectionItemBucket(sectionId = 1, isChecked = true, dueAt = null, count = 5),
+                // Still waiting, so invisible in the list — but clearing the section removes it.
+                SectionItemBucket(sectionId = 1, isChecked = false, dueAt = NOW + 1, count = 3),
+            ),
+        )
+        assertEquals(5, totals.getValue(1).checked)
+        assertEquals(10, totals.getValue(1).total)
     }
 
     // ---- nextDueAt ----

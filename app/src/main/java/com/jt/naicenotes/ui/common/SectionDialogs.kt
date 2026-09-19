@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -16,10 +18,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,22 +36,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.ui.util.SectionColorPalette
-import com.jt.naicenotes.ui.util.SectionEmojiPalette
 import com.jt.naicenotes.ui.util.nextIconInput
 
+/** Everything about a section, in one place. */
+data class SectionEdit(
+    val name: String,
+    val emoji: String?,
+    val color: Int,
+    val makeClaudeSection: Boolean,
+)
+
+/**
+ * Create or edit a section: name, icon, colour, and — when editing — whether it's the Claude
+ * section. These were three separate dialogs reached from three menu entries; they're all
+ * properties of one thing, and splitting them meant three trips to change a section's look.
+ *
+ * [onMakeClaudeSection] is only offered when editing: a section has to exist before it can be
+ * the one notes are sent to.
+ */
 @Composable
-fun SectionNameDialog(
+fun SectionDialog(
     title: String,
-    initialName: String,
     confirmLabel: String,
+    initialName: String,
+    initialEmoji: String?,
+    initialColor: Int,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, emoji: String?) -> Unit,
-    initialEmoji: String? = null,
-    /** The section's own colour when renaming; a new section hasn't been assigned one yet. */
-    accent: Color? = null,
+    onConfirm: (SectionEdit) -> Unit,
+    isClaudeSection: Boolean = false,
+    showClaudeToggle: Boolean = false,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var emoji by remember { mutableStateOf(initialEmoji) }
+    var color by remember { mutableIntStateOf(initialColor) }
+    var makeClaude by remember { mutableStateOf(isClaudeSection) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -87,7 +109,7 @@ fun SectionNameDialog(
                             textStyle = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.width(96.dp),
                         )
-                        GlyphPreview(name = name, emoji = emoji, accent = accent)
+                        GlyphPreview(name = name, emoji = emoji, accent = Color(color))
                     }
                     Text(
                         text = "Tap the field, then your keyboard's emoji key. " +
@@ -99,30 +121,60 @@ fun SectionNameDialog(
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Quick pick",
+                        text = "Colour",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // Shortcuts only — tapping the selected one again clears it.
-                    SectionEmojiPalette.chunked(EMOJI_ROW_SIZE).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { candidate ->
-                                EmojiChip(
-                                    emoji = candidate,
-                                    isSelected = candidate == emoji,
-                                    onClick = {
-                                        emoji = if (emoji == candidate) null else candidate
-                                    },
+                    SectionColorPalette.chunked(COLOR_ROW_SIZE).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            row.forEach { swatch ->
+                                ColorSwatch(
+                                    color = swatch,
+                                    isSelected = swatch.toArgb() == color,
+                                    onClick = { color = swatch.toArgb() },
                                 )
                             }
                         }
+                    }
+                }
+
+                if (showClaudeToggle) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Claude section", modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = makeClaude,
+                                // Only ever switched on: the flag moves by designating a
+                                // different section, so it can't be switched off into a state
+                                // where the composer's checkbox has nowhere to file a note.
+                                enabled = !isClaudeSection,
+                                onCheckedChange = { makeClaude = it },
+                            )
+                        }
+                        Text(
+                            text = if (isClaudeSection) {
+                                "Notes sent to Claude are kept here. " +
+                                    "Turn it on for another section to move it."
+                            } else {
+                                "Notes sent with the composer's Claude checkbox are kept here."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), emoji) },
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onConfirm(SectionEdit(name.trim(), emoji, color, makeClaude))
+                    }
+                },
                 enabled = name.isNotBlank(),
             ) { Text(confirmLabel) }
         },
@@ -130,8 +182,8 @@ fun SectionNameDialog(
     )
 }
 
-/** How many icon choices fit a dialog row without the row scrolling. */
-private const val EMOJI_ROW_SIZE = 6
+/** How many swatches fit a dialog row without the row scrolling. */
+private const val COLOR_ROW_SIZE = 5
 
 /**
  * Live preview of the tile the rail and widget will draw. It builds a throwaway [Section] and reads
@@ -140,15 +192,14 @@ private const val EMOJI_ROW_SIZE = 6
  * letter gets white-on-solid.
  */
 @Composable
-private fun GlyphPreview(name: String, emoji: String?, accent: Color?) {
-    val tint = accent ?: MaterialTheme.colorScheme.primary
-    val preview = Section(name = name, color = tint.toArgb(), position = 0, emoji = emoji)
+private fun GlyphPreview(name: String, emoji: String?, accent: Color) {
+    val preview = Section(name = name, color = accent.toArgb(), position = 0, emoji = emoji)
 
     Box(
         modifier = Modifier
             .size(42.dp)
             .clip(RoundedCornerShape(13.dp))
-            .background(if (preview.hasEmoji) tint.copy(alpha = 0.22f) else tint),
+            .background(if (preview.hasEmoji) accent.copy(alpha = 0.22f) else accent),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -159,83 +210,93 @@ private fun GlyphPreview(name: String, emoji: String?, accent: Color?) {
     }
 }
 
-/** One quick-pick shortcut. Tapping the selected one again clears the icon. */
 @Composable
-private fun EmojiChip(
-    emoji: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ColorSwatch(color: Color, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-            )
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(color)
             .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(12.dp),
+                width = if (isSelected) 3.dp else 0.dp,
+                color = MaterialTheme.colorScheme.onSurface,
+                shape = CircleShape,
             )
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = emoji, style = MaterialTheme.typography.titleMedium)
-    }
+    )
+}
+
+/**
+ * Which notes to remove. The choice *is* the confirmation — each option names its own count, so
+ * the destructive one can't be mistaken for the tidy one, and clearing checked items (the common
+ * case) doesn't cost two dialogs.
+ */
+@Composable
+fun ClearItemsDialog(
+    sectionName: String,
+    checkedCount: Int,
+    totalCount: Int,
+    onDismiss: () -> Unit,
+    onClearChecked: () -> Unit,
+    onClearAll: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clear \"$sectionName\"") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "This can't be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ClearChoice(
+                    label = "Checked notes",
+                    count = checkedCount,
+                    onClick = onClearChecked,
+                )
+                ClearChoice(
+                    label = "All notes",
+                    count = totalCount,
+                    onClick = onClearAll,
+                    destructive = true,
+                )
+            }
+        },
+        // The choice is the confirmation, so there's nothing left to confirm.
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
-fun ColorPickerDialog(
-    title: String,
-    selectedColor: Int?,
-    onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
+private fun ClearChoice(
+    label: String,
+    count: Int,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
 ) {
-    var selected by remember { mutableStateOf(selectedColor) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Two rows of swatches
-                val palette = SectionColorPalette
-                val rowSize = 5
-                palette.chunked(rowSize).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { color ->
-                            val argb = color.toArgb()
-                            val isSelected = argb == selected
-                            Column(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(
-                                        width = if (isSelected) 3.dp else 0.dp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        shape = CircleShape,
-                                    )
-                                    .clickable { selected = argb },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {}
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { selected?.let(onConfirm) },
-                enabled = selected != null,
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    val enabled = count > 0
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.outline
+        destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+    ) {
+        Text(text = label, color = tint, modifier = Modifier.weight(1f))
+        Text(
+            text = "$count",
+            color = tint,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
 }
 
 @Composable

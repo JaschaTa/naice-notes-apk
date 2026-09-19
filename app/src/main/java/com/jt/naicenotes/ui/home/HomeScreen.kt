@@ -116,12 +116,15 @@ import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.UserAgents
 import com.jt.naicenotes.data.util.SectionCounts
+import com.jt.naicenotes.data.util.SectionTotals
 import com.jt.naicenotes.data.util.countsBySection
-import com.jt.naicenotes.ui.common.ColorPickerDialog
+import com.jt.naicenotes.data.util.totalsBySection
 import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.PendingSchedule
 import com.jt.naicenotes.ui.common.ScheduleDialog
-import com.jt.naicenotes.ui.common.SectionNameDialog
+import com.jt.naicenotes.ui.common.ClearItemsDialog
+import com.jt.naicenotes.ui.common.SectionDialog
+import com.jt.naicenotes.ui.common.SectionEdit
 import com.jt.naicenotes.ui.util.UiPrefs
 import com.jt.naicenotes.ui.util.formatDueDate
 import com.jt.naicenotes.ui.util.formatDueRelative
@@ -173,11 +176,9 @@ private val DUE_BAR_WIDTH = 3.dp
 
 private sealed interface HomeDialog {
     data object NewSection : HomeDialog
-    data object RenameSection : HomeDialog
-    data object RecolorSection : HomeDialog
+    data object EditSection : HomeDialog
     data object DeleteSection : HomeDialog
-    data object ClearChecked : HomeDialog
-    data object ClearAllNotes : HomeDialog
+    data object ClearItems : HomeDialog
     data class MoveItem(val item: Item) : HomeDialog
     data class EditTimer(val item: Item) : HomeDialog
 }
@@ -195,13 +196,14 @@ fun HomeScreen(
     var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
     var dialog by remember { mutableStateOf<HomeDialog?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val openBuckets by remember(repo) { repo.observeOpenBuckets() }
+    val itemBuckets by remember(repo) { repo.observeItemBuckets() }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     // One clock for the whole screen: the list partition, the badges and the header all have
     // to agree on what "now" is, or a row can be below the divider while the count says it
     // isn't.
     val now by rememberNow()
-    val counts = countsBySection(openBuckets, now)
+    val counts = countsBySection(itemBuckets, now)
+    val totals = totalsBySection(itemBuckets)
 
     // Collapsing the rail hands its 70dp back to the list — worth it while reading or writing
     // long items. Persisted, because it's a preference rather than a transient mode.
@@ -282,16 +284,8 @@ fun HomeScreen(
                             scope.launch { UiPrefs.setRailCollapsed(context, !railCollapsed) }
                         },
                         onScan = { onScan(selectedSection.id) },
-                        onClearChecked = { dialog = HomeDialog.ClearChecked },
-                        onMoveDoneToBottom = {
-                            scope.launch { repo.moveDoneToBottom(selectedSection.id) }
-                        },
-                        onMakeClaudeSection = {
-                            scope.launch { repo.designateClaudeSection(selectedSection) }
-                        },
-                        onClearAllNotes = { dialog = HomeDialog.ClearAllNotes },
-                        onRename = { dialog = HomeDialog.RenameSection },
-                        onRecolor = { dialog = HomeDialog.RecolorSection },
+                        onClear = { dialog = HomeDialog.ClearItems },
+                        onEdit = { dialog = HomeDialog.EditSection },
                         onDelete = { dialog = HomeDialog.DeleteSection },
                     )
                     HorizontalDivider()
@@ -378,20 +372,19 @@ fun HomeScreen(
             dialog = null
         },
         now = now,
-        onCreateSection = { name, emoji ->
+        totals = selectedSection?.let { totals[it.id] } ?: SectionTotals(checked = 0, total = 0),
+        onCreateSection = { edit ->
             scope.launch {
-                val color = randomSectionColor()
-                val newId = repo.addSection(name, color, emoji)
-                selectedId = newId
+                selectedId = repo.addSection(edit.name, edit.color, edit.emoji)
             }
             dialog = null
         },
-        onRenameSection = { newName, emoji ->
-            selectedSection?.let { scope.launch { repo.renameSection(it, newName, emoji) } }
-            dialog = null
-        },
-        onRecolorSection = { newColor ->
-            selectedSection?.let { scope.launch { repo.recolorSection(it, newColor) } }
+        onEditSection = { edit ->
+            selectedSection?.let {
+                scope.launch {
+                    repo.updateSection(it, edit.name, edit.emoji, edit.color, edit.makeClaudeSection)
+                }
+            }
             dialog = null
         },
         onDeleteSection = {
@@ -421,12 +414,8 @@ private fun ChannelHeader(
     railCollapsed: Boolean,
     onToggleRail: () -> Unit,
     onScan: () -> Unit,
-    onClearChecked: () -> Unit,
-    onMoveDoneToBottom: () -> Unit,
-    onMakeClaudeSection: () -> Unit,
-    onClearAllNotes: () -> Unit,
-    onRename: () -> Unit,
-    onRecolor: () -> Unit,
+    onClear: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -511,33 +500,16 @@ private fun ChannelHeader(
                 )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                // Three entries, not six. Name, icon, colour and the Claude flag are all
+                // properties of one section and are edited in one dialog; the two ways of
+                // emptying it are one choice, not two menu items a tap apart.
                 DropdownMenuItem(
-                    text = { Text("Move done to bottom") },
-                    onClick = { menuOpen = false; onMoveDoneToBottom() },
+                    text = { Text("Clear…") },
+                    onClick = { menuOpen = false; onClear() },
                 )
                 DropdownMenuItem(
-                    text = { Text("Clear checked") },
-                    onClick = { menuOpen = false; onClearChecked() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Clear all notes") },
-                    onClick = { menuOpen = false; onClearAllNotes() },
-                )
-                // Only offered on sections that aren't it: designating another section moves
-                // the flag, so there's never a reason to turn it off and land at none.
-                if (!section.isClaudeSection) {
-                    DropdownMenuItem(
-                        text = { Text("Make this the Claude section") },
-                        onClick = { menuOpen = false; onMakeClaudeSection() },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("Rename & icon") },
-                    onClick = { menuOpen = false; onRename() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Change color") },
-                    onClick = { menuOpen = false; onRecolor() },
+                    text = { Text("Edit section") },
+                    onClick = { menuOpen = false; onEdit() },
                 )
                 DropdownMenuItem(
                     text = { Text("Delete section") },
@@ -1747,38 +1719,36 @@ private fun HomeDialogs(
     onMoveItem: (Item, Long) -> Unit,
     onSetTimer: (Item, PendingSchedule) -> Unit,
     now: Long,
-    onCreateSection: (String, String?) -> Unit,
-    onRenameSection: (String, String?) -> Unit,
-    onRecolorSection: (Int) -> Unit,
+    totals: SectionTotals,
+    onCreateSection: (SectionEdit) -> Unit,
+    onEditSection: (SectionEdit) -> Unit,
     onDeleteSection: () -> Unit,
     onClearChecked: () -> Unit,
     onClearAllNotes: () -> Unit,
 ) {
     when (dialog) {
-        HomeDialog.NewSection -> SectionNameDialog(
+        HomeDialog.NewSection -> SectionDialog(
             title = "New section",
-            initialName = "",
             confirmLabel = "Create",
+            initialName = "",
+            initialEmoji = null,
+            // Pre-picked so creating a section is still one field and a button, but visible
+            // and changeable rather than assigned behind your back.
+            initialColor = remember { randomSectionColor() },
             onDismiss = onDismiss,
             onConfirm = onCreateSection,
         )
-        HomeDialog.RenameSection -> selectedSection?.let {
-            SectionNameDialog(
-                title = "Rename section",
-                initialName = it.name,
+        HomeDialog.EditSection -> selectedSection?.let {
+            SectionDialog(
+                title = "Edit section",
                 confirmLabel = "Save",
-                onDismiss = onDismiss,
-                onConfirm = onRenameSection,
+                initialName = it.name,
                 initialEmoji = it.emoji,
-                accent = Color(it.color),
-            )
-        }
-        HomeDialog.RecolorSection -> selectedSection?.let {
-            ColorPickerDialog(
-                title = "Pick a color",
-                selectedColor = it.color,
+                initialColor = it.color,
+                isClaudeSection = it.isClaudeSection,
+                showClaudeToggle = true,
                 onDismiss = onDismiss,
-                onConfirm = onRecolorSection,
+                onConfirm = onEditSection,
             )
         }
         HomeDialog.DeleteSection -> selectedSection?.let {
@@ -1789,20 +1759,14 @@ private fun HomeDialogs(
                 onConfirm = onDeleteSection,
             )
         }
-        HomeDialog.ClearChecked -> ConfirmDeleteDialog(
-            title = "Clear checked items?",
-            message = "All checked items in this section will be removed.",
-            confirmLabel = "Clear",
-            onDismiss = onDismiss,
-            onConfirm = onClearChecked,
-        )
-        HomeDialog.ClearAllNotes -> selectedSection?.let {
-            ConfirmDeleteDialog(
-                title = "Clear all notes?",
-                message = "Every item in \"${it.name}\" will be permanently removed.",
-                confirmLabel = "Clear",
+        HomeDialog.ClearItems -> selectedSection?.let {
+            ClearItemsDialog(
+                sectionName = it.name,
+                checkedCount = totals.checked,
+                totalCount = totals.total,
                 onDismiss = onDismiss,
-                onConfirm = onClearAllNotes,
+                onClearChecked = onClearChecked,
+                onClearAll = onClearAllNotes,
             )
         }
         is HomeDialog.MoveItem -> MoveToSectionDialog(

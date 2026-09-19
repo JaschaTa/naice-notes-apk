@@ -1,25 +1,29 @@
 package com.jt.naicenotes.data.util
 
-import com.jt.naicenotes.data.db.SectionDueBucket
+import com.jt.naicenotes.data.db.SectionItemBucket
 import java.time.Instant
 import java.time.ZoneId
 
 /** Open notes in a section, and how many of those have come due. */
 data class SectionCounts(val open: Int, val due: Int)
 
+/** What the clear dialog needs to name its two options. */
+data class SectionTotals(val checked: Int, val total: Int)
+
 /**
- * Folds the open-note buckets into per-section counts at [now].
+ * Folds the item buckets into per-section open/due counts at [now].
  *
  * The query can't do this itself: it would need `now` as a parameter, and a Room Flow built
  * with a bound argument keeps returning results for the value it was created with. Grouping
  * on `dueAt` instead keeps the aggregate time-independent, and the clock is applied here.
  *
- * A section whose notes are all still waiting is absent from the result rather than present
- * with zero — same convention as the badge query it replaced.
+ * A section with nothing open — because it's empty, all done, or all still waiting — is absent
+ * from the result rather than present with zero, which is what the badge already expects.
  */
-fun countsBySection(buckets: List<SectionDueBucket>, now: Long): Map<Long, SectionCounts> {
+fun countsBySection(buckets: List<SectionItemBucket>, now: Long): Map<Long, SectionCounts> {
     val counts = mutableMapOf<Long, SectionCounts>()
     buckets.forEach { bucket ->
+        if (bucket.isChecked) return@forEach
         val dueAt = bucket.dueAt
         if (dueAt != null && dueAt > now) return@forEach
         val current = counts[bucket.sectionId] ?: SectionCounts(open = 0, due = 0)
@@ -29,6 +33,22 @@ fun countsBySection(buckets: List<SectionDueBucket>, now: Long): Map<Long, Secti
         )
     }
     return counts
+}
+
+/**
+ * Checked and overall note counts per section. Unlike [countsBySection] this ignores the clock
+ * entirely — clearing a section removes what's stored, whether or not it's come due yet.
+ */
+fun totalsBySection(buckets: List<SectionItemBucket>): Map<Long, SectionTotals> {
+    val totals = mutableMapOf<Long, SectionTotals>()
+    buckets.forEach { bucket ->
+        val current = totals[bucket.sectionId] ?: SectionTotals(checked = 0, total = 0)
+        totals[bucket.sectionId] = SectionTotals(
+            checked = current.checked + if (bucket.isChecked) bucket.count else 0,
+            total = current.total + bucket.count,
+        )
+    }
+    return totals
 }
 
 /**

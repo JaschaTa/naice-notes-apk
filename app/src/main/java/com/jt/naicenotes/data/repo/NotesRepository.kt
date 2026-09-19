@@ -1,7 +1,7 @@
 package com.jt.naicenotes.data.repo
 
 import com.jt.naicenotes.data.db.AppDatabase
-import com.jt.naicenotes.data.db.SectionDueBucket
+import com.jt.naicenotes.data.db.SectionItemBucket
 import com.jt.naicenotes.data.entity.Item
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.LinkDetector
@@ -33,12 +33,12 @@ class NotesRepository(
     fun observeItems(sectionId: Long): Flow<List<Item>> = items.observeBySection(sectionId)
 
     /**
-     * Raw open-item buckets for the rail badges and header counts. Deliberately not folded
+     * Raw item buckets for the rail badges, header counts and clear totals. Deliberately not folded
      * into counts here: folding needs the current time, and a clock held anywhere behind the
      * Flow is a clock that stops. The UI applies it — see
      * [com.jt.naicenotes.data.util.countsBySection].
      */
-    fun observeOpenBuckets(): Flow<List<SectionDueBucket>> = items.observeOpenBuckets()
+    fun observeItemBuckets(): Flow<List<SectionItemBucket>> = items.observeItemBuckets()
 
     suspend fun listItems(sectionId: Long): List<Item> = items.listBySection(sectionId)
 
@@ -54,16 +54,29 @@ class NotesRepository(
     }
 
     /**
-     * Name and emoji are edited in the same dialog, so they're saved together — a separate
-     * emoji setter would mean two writes and two widget re-renders for one user action.
+     * Everything a section's dialog can change, in one write. Name, icon, colour and the
+     * Claude flag are edited together, and saving them separately would mean three writes and
+     * three widget re-renders for one press of Save — and, worse, each one overwriting the
+     * stale copy the others started from.
      */
-    suspend fun renameSection(section: Section, newName: String, emoji: String? = section.emoji) {
-        sections.update(section.copy(name = newName, emoji = emoji))
-        onChange()
-    }
-
-    suspend fun recolorSection(section: Section, newColor: Int) {
-        sections.update(section.copy(color = newColor))
+    suspend fun updateSection(
+        section: Section,
+        name: String,
+        emoji: String?,
+        color: Int,
+        makeClaudeSection: Boolean,
+    ) {
+        if (makeClaudeSection && !section.isClaudeSection) {
+            sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
+        }
+        sections.update(
+            section.copy(
+                name = name,
+                emoji = emoji,
+                color = color,
+                remoteKind = if (makeClaudeSection) Section.REMOTE_KIND_CLAUDE else section.remoteKind,
+            ),
+        )
         onChange()
     }
 
@@ -151,18 +164,6 @@ class NotesRepository(
         }
     }
 
-    /**
-     * Single-select: designating a section clears the flag from whichever section held it.
-     * The composer's send checkbox routes to exactly one section, so two would make the
-     * destination arbitrary. There's no undesignate — moving the flag is the only edit the
-     * UI offers, which keeps "none" a starting state rather than one you can back into.
-     */
-    suspend fun designateClaudeSection(section: Section) {
-        sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
-        sections.update(section.copy(remoteKind = Section.REMOTE_KIND_CLAUDE))
-        onChange()
-    }
-
     suspend fun setSchedule(item: Item, dueAt: Long?, repeatWeeks: Int?) {
         items.setSchedule(item.id, dueAt, repeatWeeks)
         onChange()
@@ -233,12 +234,6 @@ class NotesRepository(
         onChange()
     }
 
-    suspend fun moveDoneToBottom(sectionId: Long) {
-        val current = items.listBySection(sectionId)
-        val reordered = current.filter { !it.isChecked } + current.filter { it.isChecked }
-        reordered.forEachIndexed { index, item -> items.setPosition(item.id, index) }
-        onChange()
-    }
 }
 
 /** An item owed to a remote inbox, paired with the section name the inbox wants reported. */

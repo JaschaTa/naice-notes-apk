@@ -1,7 +1,6 @@
 package com.jt.naicenotes
 
 import com.jt.naicenotes.data.entity.Section
-import com.jt.naicenotes.ui.util.SectionEmojiPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -68,17 +67,6 @@ class SectionGlyphTest {
         val heart = section(name = "Health", emoji = "❤️")
         assertEquals("❤️", heart.glyph)
         assertEquals(2, heart.glyph.length)
-    }
-
-    @Test
-    fun `every palette emoji is usable`() {
-        assertTrue("palette is not empty", SectionEmojiPalette.isNotEmpty())
-        assertEquals("no duplicates", SectionEmojiPalette.size, SectionEmojiPalette.toSet().size)
-        SectionEmojiPalette.forEach { emoji ->
-            val s = section(name = "Any", emoji = emoji)
-            assertTrue("'$emoji' should count as an emoji", s.hasEmoji)
-            assertEquals("'$emoji' should render itself", emoji, s.glyph)
-        }
     }
 
     @Test

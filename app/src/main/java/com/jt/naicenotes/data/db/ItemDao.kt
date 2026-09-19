@@ -56,19 +56,17 @@ interface ItemDao {
     suspend fun listUnpushedInRemoteSections(): List<Item>
 
     /**
-     * Open items per section, split by due date, for the rail badges and the header counts.
+     * Every item counted per section, split by checked state and due date. Feeds the rail
+     * badges, the header counts and the clear dialog's totals from one aggregate.
      *
-     * Grouping on `dueAt` rather than filtering by it keeps this aggregate free of the clock:
-     * a `:now` parameter would bind once and the Flow would go on answering for that instant
-     * forever. [com.jt.naicenotes.data.util.countsBySection] applies the clock instead. Every
-     * unscheduled item still collapses into one `dueAt IS NULL` bucket per section, so this is
-     * barely wider than the plain count it replaced.
-     *
-     * Sections with nothing open are absent rather than reported as zero — the caller renders
-     * no badge for a missing key, which is the same thing.
+     * Grouping on `dueAt` rather than filtering by it keeps this free of the clock: a `:now`
+     * parameter would bind once and the Flow would go on answering for that instant forever.
+     * [com.jt.naicenotes.data.util.countsBySection] applies the clock instead. Every
+     * unscheduled item still collapses into one bucket per section and checked state, so this
+     * stays a real aggregate rather than a row per item.
      */
-    @Query("SELECT sectionId, dueAt, COUNT(*) AS count FROM items WHERE isChecked = 0 GROUP BY sectionId, dueAt")
-    fun observeOpenBuckets(): Flow<List<SectionDueBucket>>
+    @Query("SELECT sectionId, isChecked, dueAt, COUNT(*) AS count FROM items GROUP BY sectionId, isChecked, dueAt")
+    fun observeItemBuckets(): Flow<List<SectionItemBucket>>
 
     @Query("UPDATE items SET sectionId = :sectionId, position = :position WHERE id = :id")
     suspend fun setSection(id: Long, sectionId: Long, position: Int)
@@ -137,9 +135,10 @@ interface ItemDao {
     suspend fun deleteAllInSection(sectionId: Long)
 }
 
-/** One row of [ItemDao.observeOpenBuckets]: open items in a section sharing a due date. */
-data class SectionDueBucket(
+/** One row of [ItemDao.observeItemBuckets]: items in a section sharing a state and due date. */
+data class SectionItemBucket(
     val sectionId: Long,
+    val isChecked: Boolean,
     val dueAt: Long?,
     val count: Int,
 )

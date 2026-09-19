@@ -136,7 +136,7 @@ Two traps cost real time here, both of which make a working app look broken:
 
 **A section's tile is an emoji or its name's initial, and the two are styled differently.** `Section.glyph` picks one and `Section.hasEmoji` decides the styling: an emoji is already a multicoloured glyph so it sits on a ~22% wash of the section colour, while a letter has no colour of its own and takes white-on-solid to stay legible. That pairing is duplicated in four places — `RailTile`, `RailToggle`, the move-to-section picker and the widget's `renderTile` — so changing one means changing all four. `sections.emoji` is nullable and everything falls back to the initial, which is what every pre-v6 section renders. `SectionGlyphTest` locks the fallback rules.
 
-**The icon picker ships no emoji — the system keyboard is the picker.** The dialog's "Icon" field is a plain `OutlinedTextField`; the user taps it and uses their keyboard's emoji tab, which brings search, skin tones and their own recents for free. Input goes through `nextIconInput` (see the ledger entry on why the naive version looked dead), which clamps to a grapheme cluster because one visible character is neither one `Char` nor one code point: truncating otherwise turns ❤️ into a monochrome ❤ and 👍🏽 into a yellow 👍. `GraphemeTest` locks both rules. `SectionEmojiPalette` remains only as one-tap shortcuts, and tapping the selected one clears it.
+**The icon picker ships no emoji — the system keyboard is the picker.** The dialog's "Icon" field is a plain `OutlinedTextField`; the user taps it and uses their keyboard's emoji tab, which brings search, skin tones and their own recents for free. Input goes through `nextIconInput` (see the ledger entry on why the naive version looked dead), which clamps to a grapheme cluster because one visible character is neither one `Char` nor one code point: truncating otherwise turns ❤️ into a monochrome ❤ and 👍🏽 into a yellow 👍. `GraphemeTest` locks both rules. The 16-emoji quick-pick shortcuts are **gone**: they made sense when the dialog was a name and an icon, but it now also carries colour and the Claude toggle, and three rows of shortcuts for something the keyboard does better were what pushed it into scrolling.
 
 The alternative was `androidx.emoji2:emoji2-emojipicker`, measured at **+4.44 MB (12.3%)** on the debug APK — nothing shrinks it with `isMinifyEnabled = false`. Rejected on the same grounds as `material-icons-extended`: the platform already does this, and a text field costs nothing.
 
@@ -171,6 +171,16 @@ Everything still uncovered needs an Android runtime, so it's blocked behind one 
 ## Link previews
 
 Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL via `LinkDetector`, and hands the text to the repository. `NotesRepository.addItem` detects the URL and fires the `onLinkDetected` callback, which `NaiceNotesApp` wires to a background Open Graph fetch — so *every* add path (composer, widget quick-add, share) gets previews without knowing about networking. Fetching is direct from the device, best-effort: a failure leaves the raw URL showing, and `retryMissingLinkPreviews()` retries on next launch for links shared while offline.
+
+## Section menu
+
+Three entries: **Clear…**, **Edit section**, **Delete section**.
+
+`SectionDialog` handles create *and* edit — name, icon, colour, and (editing only) the Claude toggle, saved by one `updateSection` write. They were three dialogs behind three menu entries, which meant three trips to restyle a section and, worse, three writes each starting from a copy the others had already made stale. The Claude switch can only be turned **on**: the flag moves by designating another section, so it can't be switched off into a state where the composer's checkbox has nowhere to file a note.
+
+`ClearItemsDialog` replaced two menu entries and their confirm dialogs. The choice **is** the confirmation — each option carries its own count, so the destructive one can't be mistaken for the tidy one, and clearing checked items doesn't cost two dialogs.
+
+"Move done to bottom" is gone, along with `NotesRepository.moveDoneToBottom`.
 
 ## Scheduled and repeating notes
 
