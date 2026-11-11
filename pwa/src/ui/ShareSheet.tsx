@@ -108,11 +108,11 @@ export function ShareSheet({ section, role, myEmail, sharing, initialStep = 'mai
     return (
       <Sheet onClose={onClose} label={`Share "${section.name}"`}>
         <h2>Share "{section.name}"</h2>
-        <p class="sub">They'll see it among their own sections and can add, edit and tick off notes. Only you can delete it.</p>
+        <p class="sub">Shared notes are better notes 🥰 You can share sections with your friends, so you can check notes together.</p>
         <form onSubmit={share}>
-          <div class="label">Their email</div>
+          <div class="label">Add email address</div>
           {emailField}
-          <p class="hint">New to Naice Notes? They open {host} and sign in with this email.</p>
+          <p class="hint">Your friends don't have Naice Notes yet? Add them here and we'll send them the invite.</p>
           {errorLine}
           <div class="sheet-actions">
             <button type="button" class="btn text" onClick={onClose}>Cancel</button>

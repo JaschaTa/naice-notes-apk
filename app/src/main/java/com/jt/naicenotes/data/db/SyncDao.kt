@@ -121,6 +121,17 @@ interface SyncDao {
     @Query("SELECT * FROM sync_spaces")
     suspend fun spaces(): List<SyncSpace>
 
+    @Query("SELECT * FROM sync_spaces")
+    fun observeSpaces(): kotlinx.coroutines.flow.Flow<List<SyncSpace>>
+
+    /**
+     * Moves a section to another space without marking it dirty — the server already did it
+     * (unshare). Doing it here too means the next pull doesn't see the section sitting in a
+     * space that just vanished and drop it.
+     */
+    @Query("UPDATE sections SET spaceId = :spaceId WHERE uuid = :uuid")
+    suspend fun setSectionSpace(uuid: String, spaceId: String)
+
     @Query("SELECT id FROM sync_spaces WHERE kind = 'personal' LIMIT 1")
     suspend fun personalSpaceId(): String?
 

@@ -232,6 +232,34 @@ class SupabaseClient(
         }
     }
 
+    // ── Sharing (server functions in supabase/migrations/…0002_section_sharing.sql) ──
+
+    /** Shares one of your sections. The first share moves it into a new shared space. */
+    suspend fun shareSection(sectionUuid: String, email: String) {
+        rpc("share_section", """{"p_section":${quote(sectionUuid)},"p_email":${quote(email)}}""")
+    }
+
+    /** Back into your personal space; the shared space and everyone else's access go. */
+    suspend fun unshareSection(sectionUuid: String) {
+        rpc("unshare_section", """{"p_section":${quote(sectionUuid)}}""")
+    }
+
+    suspend fun leaveSpace(spaceId: String) {
+        rpc("leave_space", """{"p_space":${quote(spaceId)}}""")
+    }
+
+    /** Everyone in your shared spaces, plus open invites. */
+    suspend fun spacePeople(): List<SpacePerson> =
+        json.decodeFromString(ListSerializer(SpacePerson.serializer()), rpc("space_people", "{}"))
+
+    private suspend fun rpc(fn: String, body: String): String = authorized { token ->
+        Request.Builder()
+            .url(rest("rpc/$fn", emptyList()))
+            .rest(token)
+            .post(body.toRequestBody(JSON))
+            .build()
+    }
+
     private suspend fun upsert(table: String, body: String, empty: Boolean) {
         if (empty) return
         authorized { token ->
@@ -356,6 +384,28 @@ class SupabaseClient(
 
         /** Refresh this long before expiry, so a token can't lapse mid-sync. */
         const val REFRESH_MARGIN_S = 60
+    }
+}
+
+@Serializable
+data class SpacePerson(
+    @SerialName("space_id") val spaceId: String,
+    val email: String,
+    /** `owner` or `member`. */
+    val role: String,
+    /** False: invited, hasn't signed in yet. */
+    val joined: Boolean,
+)
+
+/** A human message for a failed share/unshare/leave, matching the PWA's wording. */
+fun sharingError(e: Throwable): String {
+    val m = e.message.orEmpty()
+    return when {
+        e is RemoteException && !e.permanent -> "You're offline. Sharing needs a connection."
+        e is SignedOutException -> "Sign in again to share."
+        m.contains("not an email address") -> "That doesn't look like an email address."
+        m.contains("you already have access") -> "That's your own email address."
+        else -> m.substringAfter(": ").ifBlank { "Something went wrong." }
     }
 }
 

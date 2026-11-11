@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -122,6 +123,9 @@ import com.jt.naicenotes.ui.common.PendingSchedule
 import com.jt.naicenotes.ui.common.ScheduleDialog
 import com.jt.naicenotes.ui.common.ClearItemsDialog
 import com.jt.naicenotes.ui.common.AccountDialog
+import com.jt.naicenotes.ui.common.SectionRole
+import com.jt.naicenotes.ui.common.ShareDialog
+import com.jt.naicenotes.ui.common.ShareStep
 import com.jt.naicenotes.ui.common.SectionDialog
 import com.jt.naicenotes.ui.common.SectionEdit
 import com.jt.naicenotes.ui.util.UiPrefs
@@ -181,6 +185,7 @@ private sealed interface HomeDialog {
     data class MoveItem(val item: Item) : HomeDialog
     data class EditTimer(val item: Item) : HomeDialog
     data object Account : HomeDialog
+    data class Share(val step: ShareStep = ShareStep.MAIN) : HomeDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -237,6 +242,22 @@ fun HomeScreen(
     val claudeSection = sections.firstOrNull { it.isClaudeSection }
     val app = rememberApp()
 
+    // Private, shared by me, or shared with me — from the spaces seen in the last pull. A
+    // section whose space isn't known yet (not synced) counts as private, as in the PWA.
+    val spaces by remember(app) { app.sync.spaces }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val syncStatus by app.sync.status.collectAsStateWithLifecycle()
+    val signedIn = syncStatus !is com.jt.naicenotes.sync.SyncStatus.SignedOut &&
+        syncStatus !is com.jt.naicenotes.sync.SyncStatus.Unconfigured
+    fun roleOf(section: Section): SectionRole {
+        val space = spaces.firstOrNull { it.id == section.spaceId }
+        return when {
+            space == null || space.kind != "shared" -> SectionRole.PRIVATE
+            space.createdBy == app.sync.userId -> SectionRole.OWNER
+            else -> SectionRole.MEMBER
+        }
+    }
+    val sharedIds = sections.filter { roleOf(it) != SectionRole.PRIVATE }.mapTo(mutableSetOf()) { it.id }
+
     Scaffold(
         // The activity is edge-to-edge, so the window never resizes for the keyboard
         // and Compose owns the inset. Union rather than stacking a separate
@@ -267,6 +288,7 @@ fun HomeScreen(
                         sections = sections,
                         selectedId = selectedSection.id,
                         counts = counts,
+                        sharedIds = sharedIds,
                         onSelect = { selectedId = it },
                         onNew = { dialog = HomeDialog.NewSection },
                         onReorder = { newOrder ->
@@ -288,6 +310,11 @@ fun HomeScreen(
                         onEdit = { dialog = HomeDialog.EditSection },
                         onDelete = { dialog = HomeDialog.DeleteSection },
                         onAccount = { dialog = HomeDialog.Account },
+                        role = roleOf(selectedSection),
+                        // A server call, so only once signed in; never the Claude section,
+                        // which doesn't leave the device.
+                        canShare = signedIn && !selectedSection.isClaudeSection,
+                        onShare = { step -> dialog = HomeDialog.Share(step) },
                     )
                     HorizontalDivider()
                     ItemsList(
@@ -362,6 +389,24 @@ fun HomeScreen(
     if (dialog == HomeDialog.Account) {
         AccountDialog(sync = app.sync, onDismiss = { dialog = null })
     }
+    (dialog as? HomeDialog.Share)?.let { share ->
+        selectedSection?.let { section ->
+            ShareDialog(
+                section = section,
+                role = roleOf(section),
+                myEmail = app.sync.email,
+                sync = app.sync,
+                initialStep = share.step,
+                onDone = { message ->
+                    scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+                    }
+                },
+                onDismiss = { dialog = null },
+            )
+        }
+    }
 
     HomeDialogs(
         dialog = dialog,
@@ -423,6 +468,9 @@ private fun ChannelHeader(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAccount: () -> Unit,
+    role: SectionRole,
+    canShare: Boolean,
+    onShare: (ShareStep) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -479,6 +527,13 @@ private fun ChannelHeader(
                         color = DUE_COLOR,
                     )
                 }
+                if (role != SectionRole.PRIVATE) {
+                    Text(
+                        text = "· shared",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (section.isClaudeSection) {
                     Text(
                         text = "· 🤖",
@@ -517,10 +572,24 @@ private fun ChannelHeader(
                     text = { Text("Edit section") },
                     onClick = { menuOpen = false; onEdit() },
                 )
-                DropdownMenuItem(
-                    text = { Text("Delete section") },
-                    onClick = { menuOpen = false; onDelete() },
-                )
+                if (canShare) {
+                    DropdownMenuItem(
+                        text = { Text(if (role == SectionRole.PRIVATE) "Share…" else "Sharing…") },
+                        onClick = { menuOpen = false; onShare(ShareStep.MAIN) },
+                    )
+                }
+                // Only the owner deletes a shared section; the other person can only leave it.
+                if (role == SectionRole.MEMBER) {
+                    DropdownMenuItem(
+                        text = { Text("Leave section") },
+                        onClick = { menuOpen = false; onShare(ShareStep.LEAVE) },
+                    )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("Delete section") },
+                        onClick = { menuOpen = false; onDelete() },
+                    )
+                }
                 // App-level rather than about this section, so set apart below a divider.
                 HorizontalDivider()
                 DropdownMenuItem(
@@ -579,6 +648,7 @@ private fun SectionRail(
     sections: List<Section>,
     selectedId: Long,
     counts: Map<Long, SectionCounts>,
+    sharedIds: Set<Long>,
     onSelect: (Long) -> Unit,
     onNew: () -> Unit,
     onReorder: (List<Long>) -> Unit,
@@ -636,6 +706,7 @@ private fun SectionRail(
                     section = section,
                     isActive = section.id == selectedId,
                     counts = counts[section.id] ?: SectionCounts(open = 0, due = 0),
+                    shared = section.id in sharedIds,
                     dragHandleModifier = Modifier.longPressDraggableHandle(
                         onDragStopped = { onReorder(railSections.map { it.id }) },
                     ),
@@ -676,6 +747,7 @@ private fun RailTile(
     section: Section,
     isActive: Boolean,
     counts: SectionCounts,
+    shared: Boolean = false,
     dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -728,6 +800,30 @@ private fun RailTile(
                         },
                         color = if (section.hasEmoji) Color.Unspecified else Color.White,
                     )
+                }
+
+                // Shared marker, bottom-left so it never competes with the count badge.
+                if (shared) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .offset(x = (-4).dp, y = 4.dp)
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(RAIL_BACKGROUND)
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.9f))
+                            .semantics { contentDescription = "Shared" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = RAIL_BACKGROUND,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
                 }
 
                 if (counts.open > 0) {
@@ -1783,6 +1879,7 @@ private fun HomeDialogs(
             onDismiss = onDismiss,
             onConfirm = { onSetTimer(dialog.item, it) },
         )
+        is HomeDialog.Share -> Unit // drawn by HomeScreen, like Account
         HomeDialog.Account -> Unit // drawn by HomeScreen, which has the app at hand
         null -> Unit
     }

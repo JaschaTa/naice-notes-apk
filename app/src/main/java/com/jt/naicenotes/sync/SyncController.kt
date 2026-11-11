@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.jt.naicenotes.NaiceNotesApp
 import com.jt.naicenotes.data.db.AppDatabase
+import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.sync.AuthStore
 import com.jt.naicenotes.data.sync.RoomSyncStore
 import com.jt.naicenotes.data.sync.SignedOutException
@@ -123,6 +124,52 @@ class SyncController(
             Log.w(TAG, "Sync failed — ${e::class.java.simpleName}: ${e.message}")
             _status.value = SyncStatus.Failed(session.email, e.message ?: e::class.java.simpleName, lastSyncedAt)
         }
+    }
+
+    // ── Sharing ──
+    //
+    // Online-only server calls, unlike every other change: the rules (owner-only delete,
+    // invites) live in Postgres. Each one syncs first, so the server has every local edit, and
+    // after, so the moved section and its new space show up straight away. Errors are thrown
+    // to the dialog rather than queued.
+
+    private val syncDao = db.syncDao()
+
+    /** The spaces from the last pull — enough to tell private, shared-by-me and shared-with-me apart. */
+    val spaces = syncDao.observeSpaces()
+
+    val userId: String? get() = client.session?.userId
+
+    val email: String get() = client.session?.email.orEmpty()
+
+    suspend fun people(): List<com.jt.naicenotes.data.sync.SpacePerson> = client.spacePeople()
+
+    suspend fun share(section: Section, email: String) {
+        syncOrThrow()
+        client.shareSection(section.uuid, email.trim().lowercase())
+        syncOrThrow()
+    }
+
+    suspend fun unshare(section: Section) {
+        syncOrThrow()
+        client.unshareSection(section.uuid)
+        syncDao.personalSpaceId()?.let { syncDao.setSectionSpace(section.uuid, it) }
+        syncOrThrow()
+    }
+
+    suspend fun leave(section: Section) {
+        val space = section.spaceId ?: return
+        syncOrThrow()
+        client.leaveSpace(space)
+        syncOrThrow() // the space is gone from the listing, so the pull drops the section here
+    }
+
+    /** Like [runOnce], but a failure reaches the caller instead of only the status line. */
+    private suspend fun syncOrThrow() {
+        runOnce()
+        val s = _status.value
+        if (s is SyncStatus.Failed) throw com.jt.naicenotes.data.sync.RemoteException(s.message, permanent = false)
+        if (s is SyncStatus.SignedOut) throw SignedOutException()
     }
 
     // ── Account ──

@@ -178,7 +178,7 @@ Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL 
 
 ## Section menu
 
-Three entries: **Clear…**, **Edit section**, **Delete section** — plus **Sync & account** below a divider, which is app-level rather than about the section and opens `AccountDialog`.
+Three entries: **Clear…**, **Edit section**, **Delete section** — plus **Share…** / **Sharing…** once signed in (never on the Claude section), and **Sync & account** below a divider, which is app-level rather than about the section and opens `AccountDialog`. In a section someone shared *with* you, **Leave section** replaces Delete — only the owner deletes. `ShareDialog` is a port of the PWA's `ShareSheet` (same wording, same three server functions); like there, these calls are online-only and sync before and after. A shared section shows a person badge on its rail tile and "· shared" in the header; the widget doesn't mark it yet.
 
 `SectionDialog` handles create *and* edit — name, icon, colour, and (editing only) the Claude toggle, saved by one `updateSection` write. They were three dialogs behind three menu entries, which meant three trips to restyle a section and, worse, three writes each starting from a copy the others had already made stale. The Claude switch can only be turned **on**: the flag moves by designating another section, so it can't be switched off into a state where the composer's checkbox has nowhere to file a note.
 
