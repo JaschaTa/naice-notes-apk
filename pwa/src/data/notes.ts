@@ -130,14 +130,17 @@ export class Notes {
     await this.updateItem(id, { dueAt, repeatWeeks })
   }
 
-  /** "Make active now": due from this moment, repeat kept. */
-  makeActiveNow(item: Item, now = Date.now()) { return this.setSchedule(item.id, now, item.repeatWeeks) }
+  /**
+   * "Make active now": due from `now`, repeat kept. Pass the screen's clock (see useNow) — a
+   * fresher Date.now() lands after it, and the note would still count as waiting.
+   */
+  makeActiveNow(item: Item, now: number) { return this.setSchedule(item.id, now, item.repeatWeeks) }
 
   /** "Remove due": drops the date and any repeat. */
   removeDue(item: Item) { return this.setSchedule(item.id, null, null) }
 
   /** "Reset timer": restarts a repeating note's cycle from now. Ticking it off never does this. */
-  async resetTimer(item: Item, now = Date.now()): Promise<void> {
+  async resetTimer(item: Item, now: number): Promise<void> {
     if (item.repeatWeeks == null) return
     await this.setSchedule(item.id, nextDueAt(now, item.repeatWeeks), item.repeatWeeks)
   }

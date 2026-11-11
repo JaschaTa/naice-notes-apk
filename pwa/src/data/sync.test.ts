@@ -5,6 +5,7 @@ import { findUrl, keyBetween, Notes } from './notes.ts'
 import { RemoteError, type Remote } from './remote.ts'
 import { Store } from './store.ts'
 import { SyncEngine } from './sync.ts'
+import { isDue, isWaiting } from './schedule.ts'
 
 // ── An in-memory server with the same rules as the Postgres schema ──
 
@@ -314,6 +315,22 @@ describe('ordering', () => {
   it('survives equal keys from two devices inserting at the same spot', () => {
     expect(keyBetween('a0', 'a0') > 'a0').toBe(true)
     expect(keyBetween('a1', 'a0') > 'a1').toBe(true)
+  })
+})
+
+describe('schedule actions', () => {
+  it('"Make active now" is due by the clock the screen judges with, even an older one', async () => {
+    const server = new FakeServer()
+    server.addSpace('home', 'shared', 'alice')
+    const a = await device(server, 'alice')
+    const s = await a.notes.addSection('home', 'G')
+    const screenNow = Date.now() - 5 * 60_000 // the screen read its clock five minutes ago
+    const item = await a.notes.addItem(s.id, 'later', { dueAt: screenNow + 86_400_000 })
+    expect(isWaiting(item, screenNow)).toBe(true)
+    await a.notes.makeActiveNow(item, screenNow)
+    const after = (await a.notes.items(s.id))[0]
+    expect(isWaiting(after, screenNow)).toBe(false)
+    expect(isDue(after, screenNow)).toBe(true)
   })
 })
 

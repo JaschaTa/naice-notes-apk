@@ -62,9 +62,12 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
     },
     reorder: (id, before, after) => void notes.moveItem(id, before, after),
     openMenu: (item) => setOpen({ kind: 'itemMenu', item }),
-    makeActiveNow: (item) => void notes.makeActiveNow(item),
+    // The screen's clock, not a fresh Date.now(): a note made due "now" must be due by the clock
+    // the list is split with, or it stays below the divider until the app is reopened. Same as
+    // Android, which passes its hoisted `now` to both.
+    makeActiveNow: (item) => void notes.makeActiveNow(item, now),
     removeDue: (item) => void notes.removeDue(item),
-    resetTimer: (item) => void notes.resetTimer(item),
+    resetTimer: (item) => void notes.resetTimer(item, now),
   }
 
   // Rows can only move within their space — the server refuses anything else.
