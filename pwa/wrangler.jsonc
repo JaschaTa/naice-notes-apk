@@ -1,0 +1,12 @@
+// Cloudflare Workers static-assets deploy. Workers Builds runs `npm run build` and then
+// `npx wrangler deploy` from this folder (dashboard "Path" = pwa). The name must match the
+// Worker's name in the dashboard.
+{
+  "name": "naice-notes",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths serve index.html, so deep links into the app don't 404.
+    "not_found_handling": "single-page-application"
+  }
+}

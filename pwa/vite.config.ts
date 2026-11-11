@@ -4,9 +4,10 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import pkg from './package.json' with { type: 'json' }
 
-// Cloudflare Pages exposes the commit as CF_PAGES_COMMIT_SHA; locally ask git.
+// Workers Builds exposes the commit as WORKERS_CI_COMMIT_SHA (Pages: CF_PAGES_COMMIT_SHA);
+// locally ask git.
 function commit(): string {
-  const sha = process.env.CF_PAGES_COMMIT_SHA
+  const sha = process.env.WORKERS_CI_COMMIT_SHA ?? process.env.CF_PAGES_COMMIT_SHA
   if (sha) return sha.slice(0, 7)
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
 }
