@@ -120,7 +120,7 @@ Two traps cost real time here, both of which make a working app look broken:
 
 ## Layout invariants worth not breaking
 
-- Items are ordered `position ASC, createdAt ASC`. New items go to the **top**: the DAO's `insertAtTop` / `insertAllAtTop` shift existing rows down inside a `@Transaction`, so a partial shift can't scramble a section. `moveToSectionTop` joins that family — it lands a moved item at the top of its new section and is transactional for the same reason.
+- Items and sections are ordered `sortKey, createdAt, uuid` (v8+; `position` is a dead column). Sort keys are fractional (`data/sync/FractionalIndex.kt`, a key-for-key port of the npm package the PWA uses), so adding at the top is one key before the first row and a drag rewrites only the moved row (`rekeyForOrder`, longest-increasing-run). Nothing renumbers a section any more — that's what keeps a synced add a one-row push.
 - Undo-delete deliberately restores an item to its *original* position, not the top.
 - Sections live in a fixed-width left rail (`RAIL_WIDTH`), not the horizontal pill row that preceded it. The rail is a **fixed near-black in both themes** rather than following Material You: it has to make nine saturated section colours read as accents, and a dynamic mid-tone fights them. It collapses to zero width via a header toggle, persisted in `UiPrefs` — the toggle is the active section's glyph tile in *both* states, never a chevron, so the tile always means "this section". Collapsing is a tap, not a left-edge swipe: on One UI gesture nav that edge is system back.
 - Every gesture on an item row is already taken — tap the circle toggles, tap the text edits, long-press drags, swipe deletes — which is why per-item actions hang off an explicit `⋮` menu rather than a press-reveal bar. Rows in the Claude section are the one exception: all of those are gated off, leaving the send arrow as the only thing to touch.
@@ -146,7 +146,7 @@ The alternative was `androidx.emoji2:emoji2-emojipicker`, measured at **+4.44 MB
 
 ## Database migrations
 
-**Currently at schema version 7**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change), `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`), `MIGRATION_5_6` (`sections.emoji`) and `MIGRATION_6_7` (`items.dueAt`, `items.repeatWeeks`) all registered in `AppDatabase.get()`. The next schema change is 7→8.
+**Currently at schema version 8**, with `MIGRATION_1_2` (link-preview columns), `MIGRATION_2_3` (`linkFetchFailed`), `MIGRATION_3_4` (clears `linkFetchFailed` after the UA-policy change), `MIGRATION_4_5` (`sections.remoteKind`, `items.pushedAt`), `MIGRATION_5_6` (`sections.emoji`) and `MIGRATION_6_7` (`items.dueAt`, `items.repeatWeeks`) and `MIGRATION_7_8` (sync: `uuid`, `sortKey`, `dirty`/`version`/`rev`, `sections.spaceId`, `items.createdBy`, tables `pending_deletes`, `sync_spaces`, `sync_meta`) all registered in `AppDatabase.get()`. The next schema change is 8→9. From v8 the schema is exported to `app/schemas/` (commit it) — earlier versions never were. 7→8 was verified against the S24's real data on the emulator: counts held and the order in every section and the rail was identical.
 
 The DB holds the only copy of real notes and there is no export yet, so `AppDatabase` deliberately does **not** call `fallbackToDestructiveMigration()`. Every schema change needs a real `Migration`; adding nullable columns needs no backfill. Verify an upgrade against populated data before shipping — install over the previous build and confirm `PRAGMA user_version` advanced and row counts held (reading the WAL, per the gotcha above). Take a backup first: `~/naice-notes-backups/` holds one set per migration so far.
 
@@ -156,7 +156,7 @@ The DB holds the only copy of real notes and there is no export yet, so `AppData
 ./gradlew :app:testDebugUnitTest      # JVM only, no device needed
 ```
 
-Four suites, all plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
+All plain JVM — deliberately no Compose UI tests, because every run would need an emulator and the emulator can't reproduce the One UI launcher or IME behaviour where the real layout risk lives.
 
 - `ItemDisplayTextTest` — `Item.displayText` / `linkDomain`, including the slug fallback for sites that block metadata fetches.
 - `SectionColorTest` — palette-to-ARGB mapping. **If this fails, persisted section colours are at risk.**
@@ -164,6 +164,8 @@ Four suites, all plain JVM — deliberately no Compose UI tests, because every r
 - `SectionGlyphTest` — `Section.glyph` / `hasEmoji`, including blank-emoji handling, the nameless-section fallback and the multi-codepoint case. Drawn in four places and unobservable inside RemoteViews, so it's locked here instead.
 - `PushedAtFormatTest` — `formatPushedAt` and `formatDueRelative`. Zone and locale are parameters purely so these can pin them; a zone bug here would read as plausible rather than wrong.
 - `ScheduleTest` — `countsBySection`, `nextDueAt`, `startOfDayIn`, `utcDateToLocalStartOfDay`, and the `isDue`/`isWaiting` rules. The DST case is the load-bearing one: millisecond-based week arithmetic passes every test that doesn't cross a boundary.
+- `FractionalIndexTest` — key-for-key against vectors generated by the JS package, the legacy UUIDv5s against the import script, and `rekeyForOrder` writing one row per drag. If it drifts, the PWA rejects Android's keys or the first sync uploads duplicates.
+- `SyncEngineTest` — the protocol against in-memory server/device fakes: dirty wins, clear-if-unchanged, tombstones, offline, refused rows kept, joined/vanished spaces, the first-sync reconciliation.
 - `ReorderWithinTest` — the rendered-index → stored-index translation for drag. Untestable through Compose, and wrong silently: it only misbehaves in sections that actually hold a scheduled note.
 
 `androidTest/` is empty but its Gradle config is kept on purpose: zero runtime cost, and it's what a first instrumented test would need. The data layer is untested — `NotesRepository`, the DAO position-shift invariants (`insertAtTop`, `moveToSectionTop`) and the migrations all have no coverage.
@@ -176,7 +178,7 @@ Share target (`share/ShareTargetActivity`) accepts `text/plain`, extracts a URL 
 
 ## Section menu
 
-Three entries: **Clear…**, **Edit section**, **Delete section**.
+Three entries: **Clear…**, **Edit section**, **Delete section** — plus **Sync & account** below a divider, which is app-level rather than about the section and opens `AccountDialog`.
 
 `SectionDialog` handles create *and* edit — name, icon, colour, and (editing only) the Claude toggle, saved by one `updateSection` write. They were three dialogs behind three menu entries, which meant three trips to restyle a section and, worse, three writes each starting from a copy the others had already made stale. The Claude switch can only be turned **on**: the flag moves by designating another section, so it can't be switched off into a state where the composer's checkbox has nowhere to file a note.
 
@@ -227,7 +229,7 @@ Item identity for the webhook's duplicate check is `inboxDedupeKey(id, createdAt
 
 ## Web app (PWA) and sync
 
-`pwa/` is the iPhone/web client (Vite + Preact + TypeScript), live at https://naice-notes.com via Cloudflare Workers (`pwa/wrangler.jsonc`, auto-deploys ~60s after a push to `main`). `supabase/` is the sync backend; its README holds the setup and the **sync contract** both clients follow. Android doesn't sync yet. Sharing is per section (⋮ → Share…): the section moves into its own shared space, owner-only delete, members can leave. Your S24 notes (minus the Claude section) were imported once into the personal space on 2026-11-11 with `pwa/scripts/import-android-snapshot.mjs`; until Android syncs, edits on the phone don't reach the web app.
+`pwa/` is the iPhone/web client (Vite + Preact + TypeScript), live at https://naice-notes.com via Cloudflare Workers (`pwa/wrangler.jsonc`, auto-deploys ~60s after a push to `main`). `supabase/` is the sync backend; its README holds the setup and the **sync contract** both clients follow. Android syncs too — see "Android sync" below. Sharing is per section (⋮ → Share…): the section moves into its own shared space, owner-only delete, members can leave. Your S24 notes (minus the Claude section) were imported once into the personal space on 2026-11-11 with `pwa/scripts/import-android-snapshot.mjs`; Android's v8 migration derives the same ids, so its first sync adopts those rows.
 
 ```bash
 cd pwa && npm run dev          # http://localhost:5173 — /?demo gives a signed-in session with sample data, no login
@@ -245,3 +247,24 @@ Gotchas that cost time:
 - **`erasableSyntaxOnly`** is on: no constructor parameter properties (`constructor(private x)`); `tsc -b` fails while vitest still passes.
 - **Never apply a realtime payload directly.** A change notification only triggers a pull; one code path decides what a row looks like.
 - **Link previews can't be fetched from the browser** (CORS). Links added on the web arrive titleless; Android's `retryMissingLinkPreviews()` fills them in once Android syncs.
+
+## Android sync
+
+Everything except the Claude section syncs to Supabase — the personal space, plus any shared spaces the account is in. Room stays the source of truth on the phone: the widget, composer, share target and quick-add all read and write Room exactly as before, and sync is a background mirror. Same contract as the PWA (`supabase/README.md`); plain OkHttp, no SDK.
+
+- `data/sync/SupabaseClient.kt` — GoTrue email-code sign-in and PostgREST. The session lives in the `naice_sync_auth` SharedPreferences, excluded from cloud backup and device transfer in `res/xml/`. `SUPABASE_URL` / `SUPABASE_ANON_KEY` come from `local.properties`; blank means "Sync & account" says unconfigured.
+- `data/sync/SyncEngine.kt` — one run: list spaces → file unassigned sections under the personal space → push section upserts, item upserts, item then section tombstones → pull by rev. Android-free, tested with fakes.
+- `data/sync/RoomSyncStore.kt` + `data/db/SyncDao.kt` — the sync side of Room. Never marks rows dirty, so applying a pull can't queue a push.
+- `sync/SyncController.kt` — triggers and status. A local write → 1.5s debounce → sync; resume and every 60s while the app is on screen (`MainActivity`); `SyncWorker` every 15 min in the background. Runs never overlap. A pull that changed rows re-renders the widget.
+
+Rules that look like details and aren't:
+
+- **Every repository write marks its row dirty** (`TOUCH` in the DAOs). A push clears `dirty` only if `version` is unchanged, so an edit made mid-push stays queued. Full-row `@Update`s are gone from the local write path on purpose: a stale `Item` copy would overwrite a pulled change *and* the sync bookkeeping.
+- **Deletes stay hard deletes** plus a `pending_deletes` row. Undo withdraws it and re-inserts with the same uuid, so the server row is revived, not duplicated.
+- **The Claude section never leaves the device.** Designating a section as Claude tombstones its server copy and gives it and its notes fresh uuids, so the tombstone coming back can't delete them; pulls never touch a local Claude row.
+- **Moving a note across spaces** (e.g. personal → a shared section) is a tombstone plus a new uuid — the server refuses cross-space moves.
+- **A refused row is kept, not discarded** (the PWA discards). It stops retrying and the next pull re-reads everything. Shown in the account dialog.
+- **The first sync reconciles the 2026-11-11 import once.** A pulled row with a pre-sync id (`LegacyUuid`, up to the max ids recorded in `sync_meta` by the migration) that the phone no longer has was deleted here since the import, so it's tombstoned rather than re-created. Every pre-v8 row starts dirty, so the phone's state wins over the import on that first sync.
+- **No realtime on Android.** A partner's edit shows up on resume, within 60s while open, or within ~15 min for the widget. A pull landing mid-drag would reset the list — rare, accepted.
+- **Signing out keeps every note** and forgets only the server mapping; signing in again re-uploads (deduplicated by uuid).
+

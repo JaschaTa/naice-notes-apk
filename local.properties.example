@@ -8,3 +8,9 @@ sdk.dir=/Users/you/Library/Android/sdk
 # runs fine — the "scan recipe" action just shows a "not configured" message.
 RECIPE_SCAN_URL=
 RECIPE_SCAN_SECRET=
+
+# Optional: Supabase sync (the same project the PWA uses). Not secrets — row-level
+# security is the boundary — but kept out of the public repo. If omitted, the app
+# stays local-only and "Sync & account" says sync isn't configured.
+SUPABASE_URL=
+SUPABASE_ANON_KEY=

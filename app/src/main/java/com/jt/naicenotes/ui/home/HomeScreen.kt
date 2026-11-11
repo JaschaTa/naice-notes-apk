@@ -121,6 +121,7 @@ import com.jt.naicenotes.ui.common.ConfirmDeleteDialog
 import com.jt.naicenotes.ui.common.PendingSchedule
 import com.jt.naicenotes.ui.common.ScheduleDialog
 import com.jt.naicenotes.ui.common.ClearItemsDialog
+import com.jt.naicenotes.ui.common.AccountDialog
 import com.jt.naicenotes.ui.common.SectionDialog
 import com.jt.naicenotes.ui.common.SectionEdit
 import com.jt.naicenotes.ui.util.UiPrefs
@@ -179,6 +180,7 @@ private sealed interface HomeDialog {
     data object ClearItems : HomeDialog
     data class MoveItem(val item: Item) : HomeDialog
     data class EditTimer(val item: Item) : HomeDialog
+    data object Account : HomeDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -285,6 +287,7 @@ fun HomeScreen(
                         onClear = { dialog = HomeDialog.ClearItems },
                         onEdit = { dialog = HomeDialog.EditSection },
                         onDelete = { dialog = HomeDialog.DeleteSection },
+                        onAccount = { dialog = HomeDialog.Account },
                     )
                     HorizontalDivider()
                     ItemsList(
@@ -356,6 +359,10 @@ fun HomeScreen(
         }
     }
 
+    if (dialog == HomeDialog.Account) {
+        AccountDialog(sync = app.sync, onDismiss = { dialog = null })
+    }
+
     HomeDialogs(
         dialog = dialog,
         selectedSection = selectedSection,
@@ -415,6 +422,7 @@ private fun ChannelHeader(
     onClear: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onAccount: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -512,6 +520,12 @@ private fun ChannelHeader(
                 DropdownMenuItem(
                     text = { Text("Delete section") },
                     onClick = { menuOpen = false; onDelete() },
+                )
+                // App-level rather than about this section, so set apart below a divider.
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Sync & account") },
+                    onClick = { menuOpen = false; onAccount() },
                 )
             }
         }
@@ -1769,6 +1783,7 @@ private fun HomeDialogs(
             onDismiss = onDismiss,
             onConfirm = { onSetTimer(dialog.item, it) },
         )
+        HomeDialog.Account -> Unit // drawn by HomeScreen, which has the app at hand
         null -> Unit
     }
 }

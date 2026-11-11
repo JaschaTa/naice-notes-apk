@@ -19,8 +19,8 @@ android {
         applicationId = "com.jt.naicenotes"
         minSdk = 34
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.4.5"
+        versionCode = 11
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -53,6 +53,18 @@ android {
             "String",
             "INBOX_PUSH_JWT_SECRET",
             "\"${localProps.getProperty("INBOX_PUSH_JWT_SECRET", "")}\"",
+        )
+        // Supabase sync. Not secrets (row-level security is the boundary), but the public
+        // repo shouldn't name the project. Blank → sync reports itself unconfigured.
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            "\"${localProps.getProperty("SUPABASE_URL", "")}\"",
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_ANON_KEY",
+            "\"${localProps.getProperty("SUPABASE_ANON_KEY", "")}\"",
         )
     }
 
@@ -130,6 +142,9 @@ dependencies {
 
     // Drag-to-reorder
     implementation(libs.reorderable)
+
+    // Background sync
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Tests
     testImplementation(libs.junit)

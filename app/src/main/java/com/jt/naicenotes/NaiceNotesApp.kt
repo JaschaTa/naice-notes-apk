@@ -12,6 +12,7 @@ import com.jt.naicenotes.data.remote.PermanentFetchException
 import com.jt.naicenotes.data.remote.inboxDedupeKey
 import com.jt.naicenotes.data.remote.inboxTitle
 import com.jt.naicenotes.data.repo.NotesRepository
+import com.jt.naicenotes.sync.SyncController
 import com.jt.naicenotes.widget.ClassicWidgetRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,9 @@ import kotlinx.coroutines.launch
 class NaiceNotesApp : Application() {
 
     lateinit var repository: NotesRepository
+        private set
+
+    lateinit var sync: SyncController
         private set
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -35,9 +39,25 @@ class NaiceNotesApp : Application() {
     override fun onCreate() {
         super.onCreate()
         val db = AppDatabase.get(this)
+        sync = SyncController(
+            context = this,
+            db = db,
+            scope = appScope,
+            url = BuildConfig.SUPABASE_URL,
+            anonKey = BuildConfig.SUPABASE_ANON_KEY,
+            onPulled = { applied, linksToFetch ->
+                if (applied > 0) ClassicWidgetRenderer.renderAll(applicationContext)
+                // Links added on the web arrive titleless — browsers can't fetch other sites'
+                // metadata (CORS). Fetching here syncs the title back to the PWA.
+                if (linksToFetch) retryMissingLinkPreviews()
+            },
+        )
         repository = NotesRepository(
             db = db,
-            onChange = { ClassicWidgetRenderer.renderAll(applicationContext) },
+            onChange = {
+                ClassicWidgetRenderer.renderAll(applicationContext)
+                sync.requestSoon()
+            },
             onLinkDetected = ::fetchLinkPreview,
             onInboxItem = ::pushToInbox,
         )
@@ -46,6 +66,7 @@ class NaiceNotesApp : Application() {
             retryMissingLinkPreviews()
             retryPendingInboxPushes()
         }
+        if (sync.isConfigured) SyncController.schedulePeriodic(this)
     }
 
     /**
@@ -151,7 +172,9 @@ class NaiceNotesApp : Application() {
     }
 
     private suspend fun seedIfEmpty() {
-        if (repository.sectionCount() == 0) {
+        // Not once signed in: an empty phone that's about to pull its notes shouldn't upload
+        // two placeholder sections into the account first.
+        if (repository.sectionCount() == 0 && !sync.hasSession) {
             repository.addSection(name = "Shopping", color = SEED_COLOR_SHOPPING)
             repository.addSection(name = "Work", color = SEED_COLOR_WORK)
         }

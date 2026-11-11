@@ -20,6 +20,7 @@ navigationCompose = "2.8.5"
 lifecycleViewmodel = "2.8.7"
 coroutines = "1.9.0"
 reorderable = "2.4.3"
+work = "2.10.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -59,6 +60,9 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 # Image loading
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# Background sync (periodic pull while the app is closed)
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
 # Drag-to-reorder for LazyColumn
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }

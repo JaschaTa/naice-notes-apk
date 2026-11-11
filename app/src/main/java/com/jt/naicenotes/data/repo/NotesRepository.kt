@@ -1,13 +1,23 @@
 package com.jt.naicenotes.data.repo
 
+import androidx.room.withTransaction
 import com.jt.naicenotes.data.db.AppDatabase
 import com.jt.naicenotes.data.db.SectionItemBucket
+import com.jt.naicenotes.data.db.keyAfter
 import com.jt.naicenotes.data.entity.Item
+import com.jt.naicenotes.data.entity.PendingDelete
 import com.jt.naicenotes.data.entity.Section
 import com.jt.naicenotes.data.remote.LinkDetector
 import com.jt.naicenotes.data.util.nextDueAt
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
+/**
+ * Every local write goes through here, which is what makes sync tractable: each mutator marks
+ * its rows dirty (the DAOs' `TOUCH`), records deletes in the outbox, and [onChange] asks for a
+ * sync. Pulled rows bypass this class entirely ([com.jt.naicenotes.data.sync.RoomSyncStore]),
+ * so applying a pull never queues a push of its own.
+ */
 class NotesRepository(
     private val db: AppDatabase,
     private val onChange: suspend () -> Unit = {},
@@ -27,6 +37,7 @@ class NotesRepository(
 
     private val sections = db.sectionDao()
     private val items = db.itemDao()
+    private val outbox = db.syncDao()
 
     fun observeSections(): Flow<List<Section>> = sections.observeAll()
 
@@ -45,9 +56,8 @@ class NotesRepository(
     suspend fun sectionCount(): Int = sections.count()
 
     suspend fun addSection(name: String, color: Int, emoji: String? = null): Long {
-        val nextPosition = sections.maxPosition() + 1
         val id = sections.insert(
-            Section(name = name, color = color, position = nextPosition, emoji = emoji),
+            Section(name = name, color = color, emoji = emoji, sortKey = keyAfter(sections.lastKey())),
         )
         onChange()
         return id
@@ -66,27 +76,38 @@ class NotesRepository(
         color: Int,
         makeClaudeSection: Boolean,
     ) {
-        if (makeClaudeSection && !section.isClaudeSection) {
-            sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
-        }
-        sections.update(
-            section.copy(
+        db.withTransaction {
+            if (makeClaudeSection && !section.isClaudeSection) {
+                sections.clearRemoteKind(Section.REMOTE_KIND_CLAUDE, exceptId = section.id)
+                // The Claude section is device-only, so this one leaves the server: tombstone
+                // its server copy, then give it and its notes fresh identities so that
+                // tombstone coming back in a pull can't delete the local rows.
+                outbox.queueDeletes(listOf(PendingDelete(section.uuid, PendingDelete.KIND_SECTION)))
+                sections.detach(section.id, UUID.randomUUID().toString())
+                items.idsInSection(section.id).forEach { items.setUuid(it, UUID.randomUUID().toString()) }
+            }
+            sections.setDetails(
+                id = section.id,
                 name = name,
                 emoji = emoji,
                 color = color,
                 remoteKind = if (makeClaudeSection) Section.REMOTE_KIND_CLAUDE else section.remoteKind,
-            ),
-        )
+            )
+        }
         onChange()
     }
 
+    /** The server tombstones the section's items itself; locally they go by foreign-key cascade. */
     suspend fun deleteSection(section: Section) {
-        sections.delete(section)
+        db.withTransaction {
+            outbox.queueDeletes(listOf(PendingDelete(section.uuid, PendingDelete.KIND_SECTION)))
+            sections.deleteById(section.id)
+        }
         onChange()
     }
 
     suspend fun reorderSections(newOrder: List<Long>) {
-        newOrder.forEachIndexed { index, id -> sections.setPosition(id, index) }
+        sections.reorder(newOrder)
         onChange()
     }
 
@@ -101,7 +122,6 @@ class NotesRepository(
         val row = Item(
             sectionId = sectionId,
             text = text,
-            position = 0,
             linkUrl = url,
             dueAt = dueAt,
             repeatWeeks = repeatWeeks,
@@ -126,7 +146,7 @@ class NotesRepository(
 
     suspend fun bulkAddItems(sectionId: Long, texts: List<String>): List<Long> {
         if (texts.isEmpty()) return emptyList()
-        val rows = texts.map { Item(sectionId = sectionId, text = it, position = 0) }
+        val rows = texts.map { Item(sectionId = sectionId, text = it) }
         val ids = items.insertAllAtTop(sectionId, rows)
         onChange()
         notifyIfClaudeSection(sectionId) { section ->
@@ -190,12 +210,15 @@ class NotesRepository(
     }
 
     suspend fun updateItemText(item: Item, newText: String) {
-        items.update(item.copy(text = newText))
+        items.setText(item.id, newText)
         onChange()
     }
 
     suspend fun deleteItem(item: Item) {
-        items.delete(item)
+        db.withTransaction {
+            outbox.queueDeletes(listOf(PendingDelete(item.uuid, PendingDelete.KIND_ITEM)))
+            items.deleteById(item.id)
+        }
         onChange()
     }
 
@@ -207,30 +230,60 @@ class NotesRepository(
      */
     suspend fun moveItemToSection(item: Item, targetSectionId: Long) {
         if (item.sectionId == targetSectionId) return
-        items.moveToSectionTop(item.id, targetSectionId)
+        db.withTransaction {
+            val source = sections.byId(item.sectionId)
+            val target = sections.byId(targetSectionId) ?: return@withTransaction
+            // The server refuses moving a row between spaces. Across that line a move is a
+            // delete of the old row plus a new one, so the old space stops showing it.
+            val personal = outbox.personalSpaceId()
+            val uuid = if (source == null || spaceOf(source, personal) != spaceOf(target, personal)) {
+                outbox.queueDeletes(listOf(PendingDelete(item.uuid, PendingDelete.KIND_ITEM)))
+                UUID.randomUUID().toString()
+            } else {
+                item.uuid
+            }
+            items.moveToSectionTop(item.id, targetSectionId, uuid)
+        }
         onChange()
     }
 
-    /** Re-insert an item that was just deleted, preserving text/checked/position. */
+    /** Where a section syncs to: unassigned means "personal, at the next sync"; Claude means nowhere. */
+    private fun spaceOf(section: Section, personal: String?): String =
+        if (section.isClaudeSection) "device" else section.spaceId ?: personal ?: "personal"
+
+    /**
+     * Re-insert an item that was just deleted, preserving text, checked state and sort key (so
+     * its original place). Same uuid, and its queued tombstone is withdrawn: the server copy is
+     * revived instead of deleted and duplicated.
+     */
     suspend fun restoreItem(item: Item): Long {
-        val id = items.insert(item.copy(id = 0))
+        val id = db.withTransaction {
+            outbox.unqueueDelete(item.uuid)
+            items.insert(item.copy(id = 0, dirty = true, version = item.version + 1))
+        }
         onChange()
         return id
     }
 
     suspend fun clearCheckedItems(sectionId: Long) {
-        items.deleteCheckedInSection(sectionId)
+        db.withTransaction {
+            outbox.queueCheckedItemDeletes(sectionId)
+            items.deleteCheckedInSection(sectionId)
+        }
         onChange()
     }
 
     /** Empties a section. Irreversible, like [deleteSection] — both sit behind a confirm dialog. */
     suspend fun clearSection(sectionId: Long) {
-        items.deleteAllInSection(sectionId)
+        db.withTransaction {
+            outbox.queueAllItemDeletes(sectionId)
+            items.deleteAllInSection(sectionId)
+        }
         onChange()
     }
 
     suspend fun reorderItems(newOrder: List<Long>) {
-        newOrder.forEachIndexed { index, id -> items.setPosition(id, index) }
+        items.reorder(newOrder)
         onChange()
     }
 
