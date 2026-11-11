@@ -124,7 +124,9 @@ ok(after.created_by === A, 'created_by cannot be rewritten')
 await fails(B, `delete from public.items where id=$1`, [i1], 'hard delete is not allowed')
 
 // ── Space boundaries ──
-await fails(A, `update public.sections set space_id=$2 where id=$1`, [sH, aPersonal], 'section cannot change space')
+await as(A, `update public.sections set space_id=$2, name='Groceries' where id=$1`, [sH, aPersonal])
+ok((await one(`select space_id from public.sections where id=$1`, [sH])).space_id === H,
+  'a client write cannot change a section\'s space (server keeps its own)')
 await fails(A, `update public.items set section_id=$2 where id=$1`, [i1, sP], 'item cannot move to another space')
 await as(A, `update public.items set section_id=$2 where id=$1`, [i1, sH2])
 ok((await one(`select section_id from public.items where id=$1`, [i1])).section_id === sH2,
@@ -157,6 +159,87 @@ await as(B, `update public.spaces set name = 'Ours' where id = $1`, [H])
 ok((await one(`select name from public.spaces where id=$1`, [H])).name === 'Household', 'member cannot rename a space')
 await as(A, `update public.spaces set name = 'Home' where id = $1`, [H])
 ok((await one(`select name from public.spaces where id=$1`, [H])).name === 'Home', 'owner can rename a space')
+
+// ── Per-section sharing ──
+// D is new: invited only through share_section. B already has an account.
+const sG = await uuid()
+await as(A, `insert into public.sections (id, space_id, name, color, sort_key, created_at)
+             values ($1,$2,'Garden',-1,'b0',$3)`, [sG, aPersonal, now])
+const gItem = await uuid()
+await as(A, `insert into public.items (id, section_id, text, sort_key, created_at) values ($1,$2,'Seeds','a0',$3)`,
+  [gItem, sG, now])
+const gRev0 = Number((await one(`select rev from public.items where id=$1`, [gItem])).rev)
+
+await fails(B, `select public.share_section($1, 'd@example.com')`, [sG], 'cannot share someone else\'s section')
+await fails(A, `select public.share_section($1, 'a@example.com')`, [sG], 'cannot share with yourself')
+await fails(A, `select public.share_section($1, 'not-an-email')`, [sG], 'share needs a real email')
+ok((await one(`select space_id from public.sections where id=$1`, [sG])).space_id === aPersonal,
+  'a refused share leaves the section where it was')
+
+const G = (await as(A, `select public.share_section($1, 'b@example.com') as s`, [sG])).rows[0].s
+ok(G !== aPersonal && (await one(`select kind from public.spaces where id=$1`, [G])).kind === 'shared',
+  'sharing moves the section into a new shared space, same id')
+ok((await as(B, `select name from public.sections where id=$1`, [sG])).rows[0]?.name === 'Garden',
+  'existing user sees the shared section at once')
+ok((await as(B, `select text from public.items where section_id=$1`, [sG])).rows[0]?.text === 'Seeds',
+  'and its notes')
+ok((await as(C, `select 1 from public.sections where id=$1`, [sG])).rows.length === 0, 'outsider still sees nothing')
+
+await as(A, `select public.share_section($1, 'D@example.com')`, [sG])
+ok(Object.keys(await hook('d@example.com')).length === 0, 'sharing with a new email admits them')
+const people = (await as(B, `select email, role, joined from public.space_people() where space_id=$1 order by email`, [G])).rows
+ok(people.map((p) => `${p.email}:${p.role}:${p.joined}`).join() ===
+  'a@example.com:owner:true,b@example.com:member:true,d@example.com:member:false',
+  `space_people lists owner, members and open invites (got ${people.map((p) => p.email)})`)
+ok((await as(C, `select * from public.space_people()`)).rows.length === 0, 'outsider sees no people')
+
+// Member rights: edit yes; delete, add sections, invite no.
+// Clients push edits as upserts, carrying every column — including a stale space_id.
+await as(B, `insert into public.sections (id, space_id, name, color, sort_key, created_at)
+             values ($1,$2,'Garden 🌱',-1,'b0',0)
+             on conflict (id) do update set name = excluded.name, space_id = excluded.space_id`, [sG, aPersonal])
+const renamed = await one(`select name, space_id from public.sections where id=$1`, [sG])
+ok(renamed.name === 'Garden 🌱', 'member can rename through an upsert')
+ok(renamed.space_id === G, 'a stale space_id in the upsert is ignored')
+await as(B, `insert into public.items (id, section_id, text, sort_key, created_at) values ($1,$2,'Water','Zz',$3)`,
+  [await uuid(), sG, now])
+ok((await as(A, `select 1 from public.items where section_id=$1 and text='Water'`, [sG])).rows.length === 1,
+  'member can add notes')
+await fails(B, `update public.sections set deleted_at=now() where id=$1`, [sG], 'member cannot delete a shared section')
+await fails(B, `insert into public.sections (id, space_id, name, color, sort_key, created_at)
+                values ($1,$2,'Mine',-1,'c0',0) on conflict (id) do update set deleted_at = now()`,
+  [sG, G], 'member cannot delete it through an upsert either')
+await fails(B, `insert into public.sections (id, space_id, name, color, sort_key, created_at)
+                values ($1,$2,'Extra',-1,'c0',0)`, [await uuid(), G], 'member cannot add sections to the space')
+await fails(B, `select public.invite_to_space($1, 'x@example.com')`, [G], 'member cannot invite')
+await fails(B, `select public.unshare_section($1)`, [sG], 'member cannot unshare')
+await fails(A, `select public.leave_space($1)`, [G], 'owner cannot leave (unshares instead)')
+
+// Leaving.
+await as(B, `select public.leave_space($1)`, [G])
+ok((await as(B, `select 1 from public.sections where id=$1`, [sG])).rows.length === 0, 'after leaving, the section is gone for B')
+ok((await as(A, `select 1 from public.space_people() where email='b@example.com' and space_id=$1`, [G])).rows.length === 0,
+  'and B is gone from the people list')
+ok((await one(`select name from public.sections where id=$1`, [sG])).name === 'Garden 🌱', 'the owner keeps it')
+await fails(B, `select public.leave_space($1)`, [G], 'cannot leave twice')
+
+// Unsharing.
+await as(A, `select public.share_section($1, 'b@example.com')`, [sG])
+await as(A, `select public.unshare_section($1)`, [sG])
+ok((await one(`select space_id from public.sections where id=$1`, [sG])).space_id === aPersonal,
+  'unsharing moves the section back to the personal space')
+ok(!(await one(`select 1 as x from public.spaces where id=$1`, [G])), 'and removes the shared space')
+ok((await as(B, `select 1 from public.sections where id=$1`, [sG])).rows.length === 0, 'B loses access')
+ok((await hook('d@example.com')).error, 'the open invite for D is gone too')
+ok(Number((await one(`select rev from public.items where id=$1`, [gItem])).rev) > gRev0,
+  'unsharing bumps item revs so devices pull them again')
+
+// Owner deletes a shared section: gone for everyone.
+const G2 = (await as(A, `select public.share_section($1, 'b@example.com') as s`, [sG])).rows[0].s
+await as(A, `update public.sections set deleted_at = now() where id=$1`, [sG])
+ok((await as(B, `select deleted_at from public.sections where id=$1`, [sG])).rows[0]?.deleted_at,
+  'owner can delete a shared section; B receives the tombstone')
+ok(G2, 'second share created a fresh space')
 
 // ── Purge & horizon ──
 await fails(A, `select public.purge_tombstones()`, [], 'clients cannot purge')

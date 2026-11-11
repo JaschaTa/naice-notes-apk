@@ -46,9 +46,9 @@ export class SupabaseRemote implements Remote {
   constructor(sb: SupabaseClient) { this.sb = sb }
 
   async listSpaces(): Promise<Space[]> {
-    const { data, error } = await this.sb.from('spaces').select('id, name, kind')
+    const { data, error } = await this.sb.from('spaces').select('id, name, kind, created_by')
     if (error) throw toRemoteError(error)
-    return data as Space[]
+    return (data ?? []).map((r) => ({ id: r.id, name: r.name, kind: r.kind, createdBy: r.created_by }))
   }
 
   async horizon(): Promise<number> {

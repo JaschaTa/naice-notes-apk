@@ -6,14 +6,21 @@ import type { Item, Section } from '../data/model.ts'
 import { Notes } from '../data/notes.ts'
 import type { Remote } from '../data/remote.ts'
 import type { Session } from '../data/session.ts'
+import { Sharing } from '../data/sharing.ts'
 import { startOfDayIn } from '../data/schedule.ts'
 import { Store } from '../data/store.ts'
 import { SyncEngine } from '../data/sync.ts'
 
 const SPACE = 'demo-personal'
+const SHARED_BY_ME = 'demo-shared-by-me'
+const SHARED_WITH_ME = 'demo-shared-with-me'
 
 const nullRemote: Remote = {
-  listSpaces: async () => [{ id: SPACE, name: 'Personal', kind: 'personal' }],
+  listSpaces: async () => [
+    { id: SPACE, name: 'Personal', kind: 'personal', createdBy: 'demo' },
+    { id: SHARED_BY_ME, name: 'Shopping', kind: 'shared', createdBy: 'demo' },
+    { id: SHARED_WITH_ME, name: 'Household', kind: 'shared', createdBy: 'partner' },
+  ],
   horizon: async () => 0,
   sectionsSince: async () => [], itemsSince: async () => [],
   sectionsInSpaces: async () => [], itemsInSpaces: async () => [],
@@ -26,18 +33,26 @@ export async function startDemoSession(): Promise<Session> {
   const engine = new SyncEngine(store, nullRemote)
   const notes = new Notes(store, () => void engine.sync())
   void engine.sync()
-  return { userId: 'demo', email: 'demo@example.com', store, engine, notes, close: () => store.close() }
+  const unavailable = async (): Promise<never> => { throw new Error('Sharing isn\'t available in the demo.') }
+  const sharing = new Sharing({ share: unavailable, unshare: unavailable, leave: unavailable, people: async () => [
+    { spaceId: SHARED_BY_ME, email: 'demo@example.com', role: 'owner', joined: true },
+    { spaceId: SHARED_BY_ME, email: 'partner@example.com', role: 'member', joined: true },
+    { spaceId: SHARED_BY_ME, email: 'friend@example.com', role: 'member', joined: false },
+    { spaceId: SHARED_WITH_ME, email: 'partner@example.com', role: 'owner', joined: true },
+    { spaceId: SHARED_WITH_ME, email: 'demo@example.com', role: 'member', joined: true },
+  ] }, store, engine)
+  return { userId: 'demo', email: 'demo@example.com', store, engine, notes, sharing, close: () => store.close() }
 }
 
 async function seed(store: Store) {
   const now = Date.now()
   const day = 86_400_000
-  const sec = (name: string, emoji: string | null, color: number, sortKey: string): Section => ({
-    id: crypto.randomUUID(), spaceId: SPACE, name, emoji, color: color | 0, sortKey, createdAt: now, deletedAt: null, rev: null, dirty: 1, version: 1,
+  const sec = (name: string, emoji: string | null, color: number, sortKey: string, spaceId = SPACE): Section => ({
+    id: crypto.randomUUID(), spaceId, name, emoji, color: color | 0, sortKey, createdAt: now, deletedAt: null, rev: null, dirty: 1, version: 1,
   })
   const [k1, k2, k3, k4] = generateNKeysBetween(null, null, 4)
-  const shopping = sec('Shopping', '🛒', 0xff4caf50, k1)
-  const house = sec('Household', '🏠', 0xff2196f3, k2)
+  const shopping = sec('Shopping', '🛒', 0xff4caf50, k1, SHARED_BY_ME)
+  const house = sec('Household', '🏠', 0xff2196f3, k2, SHARED_WITH_ME)
   const work = sec('Work', null, 0xffe91e63, k3)
   const reading = sec('Reading', '📚', 0xff9c27b0, k4)
   const item = (sectionId: string, text: string, sortKey: string, extra: Partial<Item> = {}): Item => ({

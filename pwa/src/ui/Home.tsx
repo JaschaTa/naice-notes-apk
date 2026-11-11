@@ -10,6 +10,7 @@ import { Composer } from './Composer.tsx'
 import { ItemList, type ItemActions } from './ItemList.tsx'
 import { Rail } from './Rail.tsx'
 import { ScheduleSheet } from './ScheduleSheet.tsx'
+import { ShareSheet, type SectionRole, type ShareStep } from './ShareSheet.tsx'
 import { ClearSheet, MoveSheet, SectionSheet } from './SectionSheets.tsx'
 import { ConfirmSheet, MenuSheet, Sheet } from './Sheet.tsx'
 import { Snackbar, type SnackbarMessage } from './Snackbar.tsx'
@@ -20,6 +21,7 @@ import { useNow } from './useNow.ts'
 type Open =
   | { kind: 'sectionMenu' } | { kind: 'newSection' } | { kind: 'editSection' } | { kind: 'clear' } | { kind: 'deleteSection' }
   | { kind: 'itemMenu'; item: Item } | { kind: 'timer'; item: Item } | { kind: 'move'; item: Item } | { kind: 'account' }
+  | { kind: 'share'; step?: ShareStep }
 
 const pref = {
   get: (k: string) => localStorage.getItem(`naice.${k}`),
@@ -46,6 +48,15 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
   const counts = countsBySection(allItems, now)
   const totals = totalsBySection(allItems)
   const personal = spaces?.find((s) => s.kind === 'personal')
+  const spaceById = new Map((spaces ?? []).map((s) => [s.id, s]))
+  /** Private, shared by me, or shared with me. An unknown space (not synced yet) counts as private. */
+  const roleOf = (s: Section): SectionRole => {
+    const space = spaceById.get(s.spaceId)
+    if (!space || space.kind === 'personal') return 'private'
+    return space.createdBy === session.userId ? 'owner' : 'member'
+  }
+  const sharedIds = new Set(sections.filter((s) => roleOf(s) !== 'private').map((s) => s.id))
+  const role = section ? roleOf(section) : 'private'
   const close = () => setOpen(null)
 
   function select(id: string) { setSelected(id); pref.set('section', id) }
@@ -75,7 +86,7 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
 
   return (
     <div class="app" style={{ '--accent': section ? cssColor(section.color) : undefined }}>
-      <Rail sections={sections} activeId={section?.id ?? null} counts={counts} collapsed={collapsed || sections.length === 0}
+      <Rail sections={sections} sharedIds={sharedIds} activeId={section?.id ?? null} counts={counts} collapsed={collapsed || sections.length === 0}
         onSelect={select} onAdd={() => setOpen({ kind: 'newSection' })}
         onReorder={(id, to) => {
           const rest = sections.filter((s) => s.id !== id)
@@ -87,7 +98,7 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
           <>
             <header class="header">
               <button class="rail-toggle" onClick={toggleRail} aria-label={collapsed ? 'Show sections' : 'Hide sections'}>
-                <Tile section={section} />
+                <Tile section={section} shared={role !== 'private'} />
               </button>
               <div class="header-text">
                 <h1 class="header-name">{section.name}</h1>
@@ -118,7 +129,11 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
         <MenuSheet title={section.name} onClose={close} entries={[
           { label: 'Clear…', onSelect: () => setOpen({ kind: 'clear' }) },
           { label: 'Edit section', onSelect: () => setOpen({ kind: 'editSection' }) },
-          { label: 'Delete section', danger: true, onSelect: () => setOpen({ kind: 'deleteSection' }) },
+          { label: role === 'private' ? 'Share…' : 'Sharing…', onSelect: () => setOpen({ kind: 'share' }) },
+          // Only the owner deletes a shared section; the other person can only leave it.
+          role === 'member'
+            ? { label: 'Leave section', danger: true, onSelect: () => setOpen({ kind: 'share', step: 'leave' }) }
+            : { label: 'Delete section', danger: true, onSelect: () => setOpen({ kind: 'deleteSection' }) },
           { label: 'Account', onSelect: () => setOpen({ kind: 'account' }) },
         ]} />
       )}
@@ -136,8 +151,14 @@ export function Home({ session, onSignOut }: { session: Session; onSignOut: () =
       )}
       {open?.kind === 'deleteSection' && section && (
         <ConfirmSheet title="Delete section?" confirm="Delete" onClose={close}
-          message={`"${section.name}" and all its items will be permanently removed.`}
+          message={role === 'owner'
+            ? `"${section.name}" and all its items will be permanently removed, for everyone it's shared with.`
+            : `"${section.name}" and all its items will be permanently removed.`}
           onConfirm={() => void notes.deleteSection(section.id)} />
+      )}
+      {open?.kind === 'share' && section && (
+        <ShareSheet section={section} role={role} myEmail={session.email} sharing={session.sharing}
+          initialStep={open.step} onDone={(m) => toast(m)} onClose={close} />
       )}
       {open?.kind === 'itemMenu' && (
         <MenuSheet onClose={close} entries={itemMenu(open.item, moveTargets(open.item), actions, setOpen)} />

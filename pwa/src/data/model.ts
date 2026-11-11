@@ -6,6 +6,8 @@ export interface Space {
   id: string
   name: string
   kind: 'personal' | 'shared'
+  /** The owner: whoever shared the section in it (or, for a personal space, its user). */
+  createdBy: string
 }
 
 /** Sync bookkeeping every local row carries. */

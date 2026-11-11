@@ -4,8 +4,10 @@ import { Tile } from './Tile.tsx'
 import { useRowGestures } from './useRowGestures.ts'
 
 /** Fixed near-black in both themes: it has to make nine saturated section colours read as accents. */
-export function Rail({ sections, activeId, counts, collapsed, onSelect, onAdd, onReorder }: {
+export function Rail({ sections, sharedIds, activeId, counts, collapsed, onSelect, onAdd, onReorder }: {
   sections: Section[]
+  /** Sections someone else can see too; their tiles carry a marker. */
+  sharedIds: Set<string>
   activeId: string | null
   counts: Map<string, SectionCounts>
   collapsed: boolean
@@ -27,9 +29,9 @@ export function Rail({ sections, activeId, counts, collapsed, onSelect, onAdd, o
         return (
           <button key={s.id} {...bind(s.id)} class={drag?.id === s.id ? 'rail-entry dragging' : 'rail-entry'}
             style={{ transform: dy ? `translateY(${dy}px)` : undefined, transition: drag && drag.id !== s.id ? 'transform .15s' : undefined }}
-            onClick={() => onSelect(s.id)} aria-current={active ? 'page' : undefined} aria-label={s.name}>
+            onClick={() => onSelect(s.id)} aria-current={active ? 'page' : undefined} aria-label={sharedIds.has(s.id) ? `${s.name} (shared)` : s.name}>
             {active && <span class="rail-indicator" />}
-            <Tile section={s} active={active} />
+            <Tile section={s} active={active} shared={sharedIds.has(s.id)} />
             {c && c.open > 0 && (
               <span class={c.due > 0 ? 'badge due' : 'badge'} style={{ top: 0, right: 10 }}>
                 <span>{c.open > 99 ? '99+' : c.open}</span>

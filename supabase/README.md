@@ -40,9 +40,10 @@ queries run as `supabase_read_only_user`, which can't see triggers through `info
 What's ours: `otp_length = 6`, Gmail SMTP, the two code templates, `email_sent = 30`, and `[auth.hook.before_user_created]` pointing at
 `public.hook_before_user_created`. Everything else is Supabase's default.
 
-**Advisors:** two warnings remain on purpose — `create_shared_space` and `invite_to_space` are
-security definer *and* callable by signed-in users, because that is their job; both check the
-caller themselves. RLS helpers live in the `private` schema so they aren't exposed as RPCs.
+**Advisors:** six "security definer function executable" warnings remain on purpose:
+`create_shared_space`, `invite_to_space`, `share_section`, `unshare_section`, `leave_space`,
+`space_people` are callable by signed-in users because that is their job; each checks the caller
+itself. "Leaked password protection" doesn't apply — sign-in is by emailed code only. RLS helpers live in the `private` schema so they aren't exposed as RPCs.
 
 ## One-time project setup (done 2026-11-11)
 
@@ -74,8 +75,16 @@ caller themselves. RLS helpers live in the `private` schema so they aren't expos
 - **Spaces change too.** List `spaces` on every pull. A space not seen before has existing rows
   with old revs that a rev-based pull never returns — read it in full. A space that disappeared
   will never send another change — delete its rows locally. (`pwa/src/data/sync.ts` does both.)
-- **Never move a row between spaces.** The server rejects it; express it as tombstone + insert
-  with a new id. Otherwise whoever loses access keeps a ghost copy.
+- **Clients never move a row between spaces.** Items: the server rejects it. Sections: the server
+  silently keeps its own `space_id`, so an upsert from a device that hasn't pulled a share yet
+  still lands. Sections change space only through `share_section` / `unshare_section`, which
+  bump revs so every device notices (unshare also bumps the section's items, because a device
+  that drops the vanished shared space must pull them back in).
+- **Sharing is per section.** Each shared section has its own shared space, owned by whoever
+  shared it (`spaces.created_by`). Owner-only: tombstoning the section, adding sections to the
+  space, inviting, unsharing. Members edit everything else and can `leave_space`. Server calls
+  are online-only: sync before (push local edits) and after (pull the move).
+  `space_people()` lists members with emails, plus open invites.
 - **`sort_key` is `collate "C"`** — byte order, the same as Kotlin and JS string comparison.
   Postgres' default collation orders case differently and the clients would disagree.
 - Times the clients own (`created_at`, `due_at`) are epoch millis, as on Android.

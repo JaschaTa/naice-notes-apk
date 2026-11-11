@@ -227,7 +227,7 @@ Item identity for the webhook's duplicate check is `inboxDedupeKey(id, createdAt
 
 ## Web app (PWA) and sync
 
-`pwa/` is the iPhone/web client (Vite + Preact + TypeScript), live at https://naice-notes.com via Cloudflare Workers (`pwa/wrangler.jsonc`, auto-deploys ~60s after a push to `main`). `supabase/` is the sync backend; its README holds the setup and the **sync contract** both clients follow. Android doesn't sync yet.
+`pwa/` is the iPhone/web client (Vite + Preact + TypeScript), live at https://naice-notes.com via Cloudflare Workers (`pwa/wrangler.jsonc`, auto-deploys ~60s after a push to `main`). `supabase/` is the sync backend; its README holds the setup and the **sync contract** both clients follow. Android doesn't sync yet. Sharing is per section (⋮ → Share…): the section moves into its own shared space, owner-only delete, members can leave. Your S24 notes (minus the Claude section) were imported once into the personal space on 2026-11-11 with `pwa/scripts/import-android-snapshot.mjs`; until Android syncs, edits on the phone don't reach the web app.
 
 ```bash
 cd pwa && npm run dev          # http://localhost:5173 — /?demo gives a signed-in session with sample data, no login

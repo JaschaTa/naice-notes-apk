@@ -142,6 +142,19 @@ export class Store {
     this.notify()
   }
 
+  /**
+   * Moves a section to another space locally, without marking it dirty — the server already did
+   * it (share/unshare). Doing it here too means the next pull doesn't see the section in a space
+   * that just vanished and drop it.
+   */
+  async setSectionSpace(id: string, spaceId: string): Promise<void> {
+    const tx = this.db.transaction('sections', 'readwrite')
+    const row = await tx.store.get(id)
+    if (row) await tx.store.put({ ...row, spaceId })
+    await tx.done
+    this.notify()
+  }
+
   async setSpaces(spaces: Space[]): Promise<void> {
     const tx = this.db.transaction('spaces', 'readwrite')
     await tx.store.clear()

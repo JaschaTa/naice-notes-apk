@@ -216,6 +216,16 @@ input { font: inherit; color: inherit; }
 .swatches { display: grid; grid-template-columns: repeat(5, 36px); gap: 12px; }
 .swatch { width: 36px; height: 36px; border-radius: 18px; }
 .swatch.on { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--on-surface); }
+.tile-shared { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--rail-bg); color: #fff; box-shadow: 0 0 0 1.5px var(--rail-bg); }
+.tile-shared svg { display: block; }
+.rail-toggle .tile-shared { width: 15px; height: 15px; right: -4px; bottom: -4px; }
+.person { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--outline-variant); font-size: 15px; }
+.person:last-of-type { border-bottom: 0; }
+.person-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-status { flex: none; font-size: 13px; color: var(--on-surface-variant); }
+.inline-field { display: flex; gap: 8px; }
+.inline-field .field { flex: 1; min-width: 0; }
 .move-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 6px; border-radius: 10px; font-size: 16px; }
 .move-row .tile { width: 34px; height: 34px; border-radius: 11px; font-size: 18px; }
 .move-row .tile.letter { font-size: 16px; font-weight: 700; }

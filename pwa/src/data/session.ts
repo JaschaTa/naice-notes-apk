@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Notes } from './notes.ts'
 import { SupabaseRemote } from './remote.ts'
+import { Sharing, SupabaseSharing } from './sharing.ts'
 import { Store } from './store.ts'
 import { SyncEngine } from './sync.ts'
 
@@ -15,6 +16,7 @@ export interface Session {
   store: Store
   engine: SyncEngine
   notes: Notes
+  sharing: Sharing
   close(): void
 }
 
@@ -30,6 +32,7 @@ export async function startSession(sb: SupabaseClient, userId: string, email: st
   }
   const now = () => void engine.sync()
   const notes = new Notes(store, soon)
+  const sharing = new Sharing(new SupabaseSharing(sb), store, engine)
 
   // Realtime only says "something changed"; the pull decides what. Applying payloads directly
   // would be a second code path that could disagree with the first.
@@ -45,7 +48,7 @@ export async function startSession(sb: SupabaseClient, userId: string, email: st
   now()
 
   return {
-    userId, email, store, engine, notes,
+    userId, email, store, engine, notes, sharing,
     close() {
       clearTimeout(debounce)
       clearInterval(timer)
