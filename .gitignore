@@ -28,3 +28,6 @@ keystore.properties
 
 # Android Studio / IntelliJ project state
 .idea/
+
+# Node (supabase/test, pwa)
+node_modules/

@@ -6,10 +6,12 @@ Built for Android 14+ (API 34), targeted at a Samsung S24 sideload. Single-user,
 
 ## Features
 
-- **Sections + checkable items** — a collapsible left rail of section tiles (an emoji you pick, or the name's initial) with open-item badges, swipe to delete (with undo), drag to reorder, tap text to inline-edit, and a per-item menu for edit / move to another section / delete
+- **Sections + checkable items** — a collapsible left rail of section tiles (an emoji you pick, or the name's initial) with open-item badges, swipe to delete (with undo), drag to reorder, tap text to inline-edit, and a per-item menu for timer / move to another section / delete
+- **Timed and recurring notes** — give a note a due date, a repeat interval, or both. Until it's due it waits below a divider at the bottom of its section, greyed out and counted towards nothing; once due it rejoins the list with an amber marker. Tapping its glyph shows when it's due and offers the one action that state allows — bring it forward, drop the date, or restart the cycle. Nothing runs in the background: due-ness is worked out when the list is drawn
 - **Link previews** — share a URL to the app and it fetches the page's Open Graph title and image in the background, falling back to a readable label derived from the URL when a site blocks metadata fetches
 - **Home-screen widget** — mirrors a chosen section, tap to toggle items, "+" for quick-add, tap the logo to open the app at that section, and the same emoji tiles to switch sections. Classic `AppWidgetProvider` + `RemoteCollectionItems` (API 31+) for atomic, flash-free updates
 - **Recipe scan** — pick a recipe photo, the app sends it to a private n8n webhook which proxies a multimodal LLM, returns extracted ingredient strings, the app shows a review screen before appending to a section
+- **Send to Claude** — a checkbox in the composer POSTs the note to a private n8n webhook that files it as a task, and keeps a receipt in a designated section. Also backed by a webhook I'm not publishing. Note that unlike the scan button, an unconfigured build fails quietly here: the note is still filed locally and the confirmation still appears, but nothing leaves the device
 
 ## Recipe-scan backend (private)
 
