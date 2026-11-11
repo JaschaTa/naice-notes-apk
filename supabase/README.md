@@ -64,6 +64,23 @@ itself. "Leaked password protection" doesn't apply — sign-in is by emailed cod
    create the household with `create_shared_space`, and invite the partner with `invite_to_space`.
    Note the account is created when the code is *requested*, not when it's entered.
 
+## Invite email (Edge Function `send-invite`)
+
+`functions/send-invite/index.ts` emails the person a section was just shared with. Both apps call
+it right after `share_section` succeeds; it's best-effort, so a failed email never undoes a share.
+It runs as the caller (their JWT, RLS applies) and only sends when the caller owns the section's
+shared space **and** the address is already in it (member or open invite, via `space_people()`), so
+it can't be used to mail arbitrary addresses. Mail goes through the same Gmail app password as the
+sign-in codes, on port 465 (Edge Functions block 25 and 587).
+
+```bash
+set -a && . ./.env && set +a
+npx supabase secrets set --remote="$SUPABASE_PROJECT_REF" SMTP_USER="$SMTP_USER" SMTP_PASS="$SMTP_PASS"   # once
+npx supabase functions deploy send-invite --remote="$SUPABASE_PROJECT_REF" --use-api                    # no Docker needed
+```
+
+Without the secrets the function answers 502 and the apps carry on (the share still worked).
+
 ## Sync contract (for both clients)
 
 - **Push:** upsert by client-generated `id` (`Prefer: resolution=merge-duplicates`). Never send

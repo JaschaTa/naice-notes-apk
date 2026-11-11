@@ -239,6 +239,21 @@ class SupabaseClient(
         rpc("share_section", """{"p_section":${quote(sectionUuid)},"p_email":${quote(email)}}""")
     }
 
+    /**
+     * Emails [email] that [sectionUuid] was shared with them (supabase/functions/send-invite).
+     * The function only sends if the caller owns the section and the address is in its space.
+     */
+    suspend fun sendInvite(sectionUuid: String, email: String) {
+        val b = base ?: throw IllegalStateException("Sync isn't configured in this build")
+        authorized { token ->
+            Request.Builder()
+                .url(b.newBuilder().addPathSegments("functions/v1/send-invite").build())
+                .rest(token)
+                .post("""{"section_id":${quote(sectionUuid)},"email":${quote(email)}}""".toRequestBody(JSON))
+                .build()
+        }
+    }
+
     /** Back into your personal space; the shared space and everyone else's access go. */
     suspend fun unshareSection(sectionUuid: String) {
         rpc("unshare_section", """{"p_section":${quote(sectionUuid)}}""")

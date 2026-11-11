@@ -28,7 +28,15 @@ export class SupabaseSharing implements SharingRemote {
   constructor(sb: SupabaseClient) { this.sb = sb }
 
   async share(sectionId: string, email: string): Promise<string> {
-    return this.rpc<string>('share_section', { p_section: sectionId, p_email: email })
+    const space = await this.rpc<string>('share_section', { p_section: sectionId, p_email: email })
+    // Best-effort invite email (supabase/functions/send-invite): the share stands either way.
+    try {
+      const { error } = await this.sb.functions.invoke('send-invite', { body: { section_id: sectionId, email } })
+      if (error) console.warn('send-invite failed', error.message)
+    } catch (e) {
+      console.warn('send-invite failed', e)
+    }
+    return space
   }
   async unshare(sectionId: string) { await this.rpc('unshare_section', { p_section: sectionId }) }
   async leave(spaceId: string) { await this.rpc('leave_space', { p_space: spaceId }) }

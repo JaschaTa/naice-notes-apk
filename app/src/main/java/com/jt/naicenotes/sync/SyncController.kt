@@ -146,7 +146,11 @@ class SyncController(
 
     suspend fun share(section: Section, email: String) {
         syncOrThrow()
-        client.shareSection(section.uuid, email.trim().lowercase())
+        val to = email.trim().lowercase()
+        client.shareSection(section.uuid, to)
+        // Best-effort, like the PWA: the share has happened whether or not the email lands.
+        runCatching { client.sendInvite(section.uuid, to) }
+            .onFailure { Log.w(TAG, "Invite email failed — ${it::class.java.simpleName}: ${it.message}") }
         syncOrThrow()
     }
 

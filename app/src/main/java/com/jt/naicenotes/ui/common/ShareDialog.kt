@@ -162,7 +162,7 @@ fun ShareDialog(
                             "You can share sections with your friends, so you can check notes together.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    EmailField("Their email")
+                    EmailField("Add email address")
                     Text(
                         "Your friends don't have Naice Notes yet? Add them here and we'll send them the invite.",
                         style = MaterialTheme.typography.bodySmall,
