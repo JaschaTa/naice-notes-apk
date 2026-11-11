@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.UUID
 
 @Entity(
     tableName = "items",
@@ -15,14 +16,15 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         )
     ],
-    indices = [Index("sectionId")],
+    indices = [Index("sectionId"), Index(value = ["uuid"], unique = true)],
 )
 data class Item(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sectionId: Long,
     val text: String,
     val isChecked: Boolean = false,
-    val position: Int,
+    /** Unused since v8 (ordering moved to [sortKey]); kept so the migration needn't rebuild the table. */
+    val position: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     /** Set when the item's text is (or contains) a URL — drives the link-card rendering. */
     val linkUrl: String? = null,
@@ -48,6 +50,17 @@ data class Item(
     val dueAt: Long? = null,
     /** How often the note comes back, or null for a one-off. Restarted by hand, never on tick. */
     val repeatWeeks: Int? = null,
+    /** Sync identity. Pre-v8 rows carry [com.jt.naicenotes.data.sync.LegacyUuid.item]. */
+    val uuid: String = UUID.randomUUID().toString(),
+    /** Fractional order key within the section, compared bytewise. */
+    val sortKey: String = "",
+    /** Server user id of whoever added it; null for notes that haven't been pulled. */
+    val createdBy: String? = null,
+    /** Server rev of the copy last seen; null until a pull has returned it. */
+    val rev: Long? = null,
+    /** See [Section.dirty]. Set for every row, including the Claude section's — the push skips those. */
+    val dirty: Boolean = true,
+    val version: Int = 1,
 ) {
     val isLink: Boolean get() = linkUrl != null
 

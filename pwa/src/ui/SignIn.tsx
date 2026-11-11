@@ -35,7 +35,7 @@ export function SignIn({ sb }: { sb: SupabaseClient }) {
         <form onSubmit={sendCode}>
           <h2>Sign in</h2>
           <label>Email
-            <input type="email" autocomplete="email" required value={email}
+            <input class="field" type="email" autocomplete="email" required value={email}
               onInput={(e) => setEmail(e.currentTarget.value)} />
           </label>
           <button disabled={busy || !email.includes('@')}>{busy ? 'Sending…' : 'Send code'}</button>
@@ -45,7 +45,7 @@ export function SignIn({ sb }: { sb: SupabaseClient }) {
           <h2>Check your email</h2>
           <p class="muted">We sent a 6-digit code to {email}.</p>
           <label>Code
-            <input inputMode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxLength={8} required
+            <input class="field" inputMode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxLength={8} required
               value={code} onInput={(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))} />
           </label>
           <button disabled={busy || code.length < 6}>{busy ? 'Checking…' : 'Sign in'}</button>

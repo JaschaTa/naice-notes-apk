@@ -75,6 +75,11 @@ android {
     }
 }
 
+// Room schema JSONs (from v8 on) — committed, so migrations can be tested against them.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // Copy the freshly built debug APK to the project root as Naice-Notes.apk so it's
 // easy to find / drag into Slack / AirDrop. Attached to packageDebug because
 // that's the task that actually produces the APK (assembleDebug is a lifecycle

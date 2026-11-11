@@ -7,17 +7,25 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jt.naicenotes.data.entity.Item
+import com.jt.naicenotes.data.entity.PendingDelete
 import com.jt.naicenotes.data.entity.Section
+import com.jt.naicenotes.data.entity.SyncMeta
+import com.jt.naicenotes.data.entity.SyncSpace
+import com.jt.naicenotes.data.sync.FractionalIndex
+import com.jt.naicenotes.data.sync.LegacyUuid
 
 @Database(
-    entities = [Section::class, Item::class],
-    version = 7,
-    exportSchema = false,
+    entities = [Section::class, Item::class, PendingDelete::class, SyncSpace::class, SyncMeta::class],
+    version = 8,
+    // Exported to app/schemas/ from v8 on, so a future MigrationTestHelper has something to
+    // test against. Versions before 8 were never exported.
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun sectionDao(): SectionDao
     abstract fun itemDao(): ItemDao
+    abstract fun syncDao(): SyncDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -88,6 +96,89 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 prepares for sync with Supabase (see supabase/README.md for the contract).
+         *
+         * - `uuid` on both tables is the sync identity, backfilled with [LegacyUuid] so the first
+         *   sync adopts the rows imported into the personal space on 2026-11-11.
+         * - `sortKey` replaces `position` for ordering: fractional keys mean adding or dragging
+         *   writes one row, not the whole section. Backfilled from the current
+         *   `position, createdAt` order, so nothing visibly moves. `position` stays as a dead
+         *   column rather than rebuilding both tables.
+         * - `dirty`/`version`/`rev` are the push bookkeeping; every existing row starts dirty so
+         *   the first sync uploads the phone's current state over the import.
+         * - `spaceId` stays null until the first signed-in sync files sections under the
+         *   personal space.
+         * - Three new tables: the delete outbox, the spaces seen, and sync meta. The highest
+         *   ids handed out so far are recorded there: v5 ids at or below them are pre-sync rows,
+         *   which the first sync uses to tell "deleted on the phone since the import" apart
+         *   from "added on the web".
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (table in listOf("sections", "items")) {
+                    db.execSQL("ALTER TABLE $table ADD COLUMN uuid TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN sortKey TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN rev INTEGER")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+                }
+                db.execSQL("ALTER TABLE sections ADD COLUMN spaceId TEXT")
+                db.execSQL("ALTER TABLE items ADD COLUMN createdBy TEXT")
+
+                val sectionIds = longs(db, "SELECT id FROM sections ORDER BY position ASC, createdAt ASC, id ASC")
+                FractionalIndex.nKeysBetween(null, null, sectionIds.size).zip(sectionIds) { key, id ->
+                    db.execSQL(
+                        "UPDATE sections SET uuid = ?, sortKey = ? WHERE id = ?",
+                        arrayOf<Any>(LegacyUuid.section(id), key, id),
+                    )
+                }
+                for (sectionId in sectionIds) {
+                    val itemIds = longs(
+                        db,
+                        "SELECT id FROM items WHERE sectionId = $sectionId " +
+                            "ORDER BY position ASC, createdAt ASC, id ASC",
+                    )
+                    FractionalIndex.nKeysBetween(null, null, itemIds.size).zip(itemIds) { key, id ->
+                        db.execSQL(
+                            "UPDATE items SET uuid = ?, sortKey = ? WHERE id = ?",
+                            arrayOf<Any>(LegacyUuid.item(id), key, id),
+                        )
+                    }
+                }
+
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_sections_uuid` ON `sections` (`uuid`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_items_uuid` ON `items` (`uuid`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pending_deletes` (`uuid` TEXT NOT NULL, " +
+                        "`kind` TEXT NOT NULL, PRIMARY KEY(`uuid`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_spaces` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`kind` TEXT NOT NULL, `createdBy` TEXT NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_meta` (`key` TEXT NOT NULL, " +
+                        "`value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+                )
+                for ((key, table) in listOf(META_LEGACY_MAX_SECTION to "sections", META_LEGACY_MAX_ITEM to "items")) {
+                    db.execSQL(
+                        "INSERT INTO sync_meta (`key`, `value`) VALUES (?, CAST(COALESCE(" +
+                            "(SELECT seq FROM sqlite_sequence WHERE name = '$table'), " +
+                            "(SELECT MAX(id) FROM $table), 0) AS TEXT))",
+                        arrayOf<Any>(key),
+                    )
+                }
+            }
+
+            private fun longs(db: SupportSQLiteDatabase, sql: String): List<Long> =
+                db.query(sql).use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+        }
+
+        /** Highest section/item id at the v8 migration; see [MIGRATION_7_8]. */
+        const val META_LEGACY_MAX_SECTION = "legacy_max_section_id"
+        const val META_LEGACY_MAX_ITEM = "legacy_max_item_id"
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -104,6 +195,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
+                        MIGRATION_7_8,
                     )
                     .build().also { instance = it }
             }

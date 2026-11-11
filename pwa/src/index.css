@@ -48,6 +48,9 @@ html, body { margin: 0; height: 100%; overscroll-behavior: none; }
 body { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
+/* iOS zooms into any focused field under 16px, and in a single-page app that zoom never resets:
+   the whole app then looks cut off left and right. */
+input, textarea { font-size: max(16px, 1em); }
 
 /* The app box follows the *visual* viewport (see viewport.ts): iOS doesn't resize the layout for
    the keyboard, so without this the composer would sit behind it. */
