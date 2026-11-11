@@ -1,47 +1,71 @@
+import type { Session as AuthSession } from '@supabase/supabase-js'
+import type { ComponentChildren } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
+import { startSession, type Session } from './data/session.ts'
+import { supabase } from './lib/supabase.ts'
 import { isInstalled, isIos } from './platform.ts'
-
-type Backend = 'checking' | 'reachable' | 'unreachable' | 'not configured'
-
-async function checkBackend(): Promise<Backend> {
-  const url = import.meta.env.VITE_SUPABASE_URL
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY
-  if (!url || !key) return 'not configured'
-  try {
-    const res = await fetch(`${url}/auth/v1/health`, { headers: { apikey: key } })
-    return res.ok ? 'reachable' : 'unreachable'
-  } catch {
-    return 'unreachable'
-  }
-}
+import { Home } from './ui/Home.tsx'
+import { SignIn } from './ui/SignIn.tsx'
 
 export function App() {
-  const [backend, setBackend] = useState<Backend>('checking')
-  useEffect(() => { checkBackend().then(setBackend) }, [])
+  const [auth, setAuth] = useState<AuthSession | null | undefined>(undefined)
+  const [session, setSession] = useState<Session | null>(null)
 
-  const showInstallHint = isIos() && !isInstalled()
+  useEffect(() => {
+    if (!supabase) return
+    void supabase.auth.getSession().then(({ data }) => setAuth(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => setAuth(s))
+    return () => data.subscription.unsubscribe()
+  }, [])
 
+  const userId = auth?.user.id
+  useEffect(() => {
+    if (!supabase || !userId) return
+    let current: Session | null = null
+    let cancelled = false
+    void startSession(supabase, userId, auth!.user.email ?? '').then((s) => {
+      if (cancelled) s.close()
+      else { current = s; setSession(s) }
+    })
+    return () => { cancelled = true; current?.close(); setSession(null) }
+  }, [userId])
+
+  async function signOut() {
+    if (!supabase || !session) return
+    const pending = (await session.store.dirty('items')).length + (await session.store.dirty('sections')).length
+    if (pending && !confirm(`${pending} change(s) haven't synced yet and will be lost. Sign out anyway?`)) return
+    await session.store.wipe()
+    await supabase.auth.signOut()
+  }
+
+  if (!supabase) return <Shell><p class="error">This build has no backend configured.</p></Shell>
+  if (auth === undefined) return <Shell><p class="muted">Loading…</p></Shell>
+  if (!auth) return <Shell><InstallHint /><SignIn sb={supabase} /></Shell>
+  if (!session) return <Shell><p class="muted">Opening your notes…</p></Shell>
+  return <Home session={session} onSignOut={signOut} />
+}
+
+function Shell({ children }: { children: ComponentChildren }) {
   return (
-    <main>
-      <img class="logo" src="/icon-192.png" alt="" width="96" height="96" />
+    <main class="shell">
+      <img class="logo" src="/icon-192.png" alt="" width="80" height="80" />
       <h1>Naice Notes</h1>
-      <p class="lead">Shared lists are on their way.</p>
-
-      {showInstallHint && (
-        <section class="card">
-          <h2>Add to your home screen</h2>
-          <ol>
-            <li>Tap the <strong>Share</strong> button in Safari</li>
-            <li>Choose <strong>Add to Home Screen</strong></li>
-            <li>Open Naice Notes from its new icon</li>
-          </ol>
-        </section>
-      )}
-
-      <footer>
-        <span>v{__APP_VERSION__}</span>
-        <span class={`status ${backend.replace(' ', '-')}`}>backend: {backend}</span>
-      </footer>
+      {children}
+      <footer><span>v{__APP_VERSION__}</span></footer>
     </main>
+  )
+}
+
+function InstallHint() {
+  if (!isIos() || isInstalled()) return null
+  return (
+    <section class="card">
+      <h2>Add to your home screen</h2>
+      <ol>
+        <li>Tap the <strong>Share</strong> button in Safari</li>
+        <li>Choose <strong>Add to Home Screen</strong></li>
+        <li>Open Naice Notes from its new icon</li>
+      </ol>
+    </section>
   )
 }

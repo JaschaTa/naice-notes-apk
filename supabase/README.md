@@ -71,6 +71,9 @@ caller themselves. RLS helpers live in the `private` schema so they aren't expos
   because sequence values are handed out before commit, so a lower rev can become visible late.
 - **Horizon:** if `cursor < sync_horizon.min_rev`, tombstones you never saw were purged — do a
   full resync for the space.
+- **Spaces change too.** List `spaces` on every pull. A space not seen before has existing rows
+  with old revs that a rev-based pull never returns — read it in full. A space that disappeared
+  will never send another change — delete its rows locally. (`pwa/src/data/sync.ts` does both.)
 - **Never move a row between spaces.** The server rejects it; express it as tombstone + insert
   with a new id. Otherwise whoever loses access keeps a ghost copy.
 - **`sort_key` is `collate "C"`** — byte order, the same as Kotlin and JS string comparison.
