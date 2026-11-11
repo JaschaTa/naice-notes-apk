@@ -2,6 +2,7 @@
 // then asks for a sync; nothing here talks to the network directly, so it all works offline.
 import { generateKeyBetween } from 'fractional-indexing'
 import { bySortKey, type Item, type Section } from './model.ts'
+import { nextDueAt } from './schedule.ts'
 import type { Store } from './store.ts'
 
 /** Mirrors SectionColorPalette on Android, as signed ARGB ints the way Kotlin's toArgb() stores them. */
@@ -35,12 +36,12 @@ export class Notes {
 
   // ── Sections ──
 
-  async addSection(spaceId: string, name: string, emoji: string | null = null): Promise<Section> {
+  async addSection(spaceId: string, name: string, emoji: string | null = null, color?: number): Promise<Section> {
     const existing = await this.sections()
     const last = existing[existing.length - 1]
     const section: Section = {
       id: crypto.randomUUID(), spaceId, name, emoji,
-      color: SECTION_COLORS[Math.floor(Math.random() * SECTION_COLORS.length)],
+      color: color ?? SECTION_COLORS[Math.floor(Math.random() * SECTION_COLORS.length)],
       sortKey: generateKeyBetween(last?.sortKey ?? null, null),
       createdAt: Date.now(), deletedAt: null, rev: null, dirty: 1, version: 0,
     }
@@ -120,6 +121,51 @@ export class Notes {
     const item = await this.store.get('items', id)
     if (!item) return
     await this.store.write('items', { ...item, sortKey: keyBetween(before?.sortKey ?? null, after?.sortKey ?? null) })
+    this.requestSync()
+  }
+
+  // ── Schedules (the tooltip's single actions and the timer sheet) ──
+
+  async setSchedule(id: string, dueAt: number | null, repeatWeeks: number | null): Promise<void> {
+    await this.updateItem(id, { dueAt, repeatWeeks })
+  }
+
+  /** "Make active now": due from this moment, repeat kept. */
+  makeActiveNow(item: Item, now = Date.now()) { return this.setSchedule(item.id, now, item.repeatWeeks) }
+
+  /** "Remove due": drops the date and any repeat. */
+  removeDue(item: Item) { return this.setSchedule(item.id, null, null) }
+
+  /** "Reset timer": restarts a repeating note's cycle from now. Ticking it off never does this. */
+  async resetTimer(item: Item, now = Date.now()): Promise<void> {
+    if (item.repeatWeeks == null) return
+    await this.setSchedule(item.id, nextDueAt(now, item.repeatWeeks), item.repeatWeeks)
+  }
+
+  // ── Bulk ──
+
+  /** Tombstones every checked note in a section (waiting ones included — they're stored). */
+  async clearChecked(sectionId: string): Promise<void> {
+    await this.tombstoneWhere(sectionId, (i) => i.isChecked)
+  }
+
+  async clearAll(sectionId: string): Promise<void> {
+    await this.tombstoneWhere(sectionId, () => true)
+  }
+
+  private async tombstoneWhere(sectionId: string, pick: (i: Item) => boolean): Promise<void> {
+    const at = new Date().toISOString()
+    const rows = (await this.items(sectionId)).filter(pick).map((i) => ({ table: 'items' as const, row: { ...i, deletedAt: at } }))
+    if (rows.length === 0) return
+    await this.store.writeAll(rows)
+    this.requestSync()
+  }
+
+  /** Rail reorder: like moveItem, only the moved section is written. */
+  async moveSection(id: string, before: Section | null, after: Section | null): Promise<void> {
+    const s = await this.store.get('sections', id)
+    if (!s) return
+    await this.store.write('sections', { ...s, sortKey: keyBetween(before?.sortKey ?? null, after?.sortKey ?? null) })
     this.requestSync()
   }
 

@@ -18,6 +18,15 @@ export function App() {
     return () => data.subscription.unsubscribe()
   }, [])
 
+  // Dev-only sample data at /?demo (see dev/demo.ts); the DEV check removes it from production builds.
+  const demo = import.meta.env.DEV && new URLSearchParams(location.search).has('demo')
+  useEffect(() => {
+    if (!demo) return
+    let s: Session | null = null
+    void import('./dev/demo.ts').then((m) => m.startDemoSession()).then((x) => { s = x; setSession(x) })
+    return () => s?.close()
+  }, [])
+
   const userId = auth?.user.id
   useEffect(() => {
     if (!supabase || !userId) return
@@ -38,6 +47,7 @@ export function App() {
     await supabase.auth.signOut()
   }
 
+  if (demo) return session ? <Home session={session} onSignOut={() => {}} /> : <Shell><p class="muted">Loading demo…</p></Shell>
   if (!supabase) return <Shell><p class="error">This build has no backend configured.</p></Shell>
   if (auth === undefined) return <Shell><p class="muted">Loading…</p></Shell>
   if (!auth) return <Shell><InstallHint /><SignIn sb={supabase} /></Shell>
