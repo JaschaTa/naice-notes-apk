@@ -57,7 +57,8 @@ caller themselves. RLS helpers live in the `private` schema so they aren't expos
    (later ones) use `templates/sign-in-code.html`, which shows `{{ .Token }}`: the apps sign in
    with the code, never the link, because on iOS a link opens Safari, not the installed PWA.
    Revoking the app password stops all login emails. Rate limit raised to 30 emails/hour.
-5. Still to do: site URL = the Cloudflare Pages URL, once it exists.
+5. Site URL = the PWA's live URL (Cloudflare Workers, see `pwa/wrangler.jsonc`). Local dev
+   ports are allowed as additional redirect URLs.
 6. First user (done): `insert into public.space_invites (email) values ('<email>');` Then sign in,
    create the household with `create_shared_space`, and invite the partner with `invite_to_space`.
    Note the account is created when the code is *requested*, not when it's entered.

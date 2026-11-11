@@ -4,12 +4,11 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import pkg from './package.json' with { type: 'json' }
 
-// Workers Builds exposes the commit as WORKERS_CI_COMMIT_SHA (Pages: CF_PAGES_COMMIT_SHA);
-// locally ask git.
+// Ask git first: Workers Builds clones the repo, and the env var it was read from showed the
+// branch name ("main") on the live build instead of a sha. Env vars only for builds without git.
 function commit(): string {
-  const sha = process.env.WORKERS_CI_COMMIT_SHA ?? process.env.CF_PAGES_COMMIT_SHA
-  if (sha) return sha.slice(0, 7)
-  try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
+  try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { /* no git */ }
+  return (process.env.WORKERS_CI_COMMIT_SHA ?? process.env.CF_PAGES_COMMIT_SHA ?? 'dev').slice(0, 7)
 }
 
 export default defineConfig({
