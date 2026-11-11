@@ -65,14 +65,15 @@ Deno.serve(async (req) => {
   const name = section.name
   const subject = `${from} shared "${name}" with you`
   const steps = person.joined
-    ? `It's already in your sections — open ${SITE} (or the app) to see it.`
-    : `Open ${SITE}, enter this email address and the 6-digit code you'll get. "${name}" will be waiting in your sections.`
-  const text = `${from} shared the section "${name}" with you in Naice Notes, so you can check notes together.\n\n${steps}\n\nOn an iPhone: open it in Safari, then Share → Add to Home Screen to keep it like an app.`
+    ? `You will find it in your sections: ${SITE}`
+    : `Sign up with your email address to check the notes: ${SITE}`
+  const text = `Hey there 👋\n\n${from} shared the section "${name}" with you in Naice Notes.\n\n${steps}\n\nOn an iPhone: open it in Safari, then Share → Add to Home Screen to keep it like an app.`
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.5;color:#1b1b1f;max-width:480px">
-<p><b>${escape(from)}</b> shared the section <b>“${escape(name)}”</b> with you in Naice Notes, so you can check notes together.</p>
+<p>Hey there 👋</p>
+<p><b>${escape(from)}</b> shared the section <b>“${escape(name)}”</b> with you in Naice Notes.</p>
 <p>${person.joined
-    ? `It's already in your sections.`
-    : `Enter this email address there and the 6-digit code you'll get. “${escape(name)}” will be waiting in your sections.`}</p>
+    ? `You will find it in your sections.`
+    : `Sign up with your email address to check the notes.`}</p>
 <p><a href="${SITE}" style="display:inline-block;background:#1b1b1f;color:#fff;text-decoration:none;padding:10px 18px;border-radius:10px">Open Naice Notes</a></p>
 <p style="color:#666;font-size:14px">On an iPhone: open it in Safari, then Share → Add to Home Screen to keep it like an app.</p>
 </div>`
